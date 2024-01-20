@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use std::{fs, thread};
 
 // fn convert_to_new() {
@@ -229,8 +231,9 @@ fn replace_all_old() {
         }
 
         let pool = threadpool::Builder::new().build();
+        let counter = Arc::new(AtomicUsize::new(0));
 
-        for file in files {
+        for file in &files {
             let mut path = PathBuf::new();
             path.push(dir.clone());
             path.push(file.clone());
@@ -241,6 +244,8 @@ fn replace_all_old() {
             let conversion_map = conversion_map.clone();
             let data_map = data_map.clone();
 
+            let counter = counter.clone();
+
             pool.execute(move || {
                 replace_all_old_file(
                     path.to_str().unwrap().to_string(),
@@ -248,7 +253,17 @@ fn replace_all_old() {
                     conversion_map,
                     data_map,
                 );
+                counter.fetch_add(1, Ordering::SeqCst);
             });
+        }
+
+        let mut updated = 0;
+
+        while updated <= files.len() {
+            updated = counter.fetch_add(0, Ordering::SeqCst);
+
+            println!("{}% done", updated / files.len() * 100);
+            thread::sleep(Duration::from_secs(1));
         }
 
         pool.join();
