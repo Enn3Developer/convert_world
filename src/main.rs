@@ -259,6 +259,8 @@ fn replace_all_old() {
 
         let mut updated = 0;
 
+        println!();
+
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
