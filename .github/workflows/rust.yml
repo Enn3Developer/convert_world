@@ -63,7 +63,7 @@ jobs:
           TARGET_LDFLAGS: "--target=${{ matrix.target }}"
           TARGET_CFLAGS: "--target=${{ matrix.target }}"
         run: |
-          cargo build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --features "glam/core-simd" --release --target=${{ matrix.target }} -vv
+          cargo build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --release --target=${{ matrix.target }} -vv
           upx --best --lzma "target/${{ matrix.target }}/release/$CRATE_NAME"
           cd target/${{ matrix.target }}/release/ && tar -cvf "$CRATE_NAME-${{ matrix.target }}.tar.gz" "$CRATE_NAME" && cd ../../..
       - name: Upload convert_world-${{ matrix.target }}.tar.gz
@@ -126,7 +126,7 @@ jobs:
           sudo ln -fs /usr/bin/mold /usr/bin/ld
       - name: Build ${{ matrix.target }}
         run: |
-          cargo build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --features "glam/core-simd" --target=${{ matrix.target }} --release -vv
+          cargo build -Z build-std=std,panic_abort -Z build-std-features=panic_immediate_abort --target=${{ matrix.target }} --release -vv
           upx --best --lzma "target/${{ matrix.target }}/release/$CRATE_NAME"
           cd target/${{ matrix.target }}/release/ && tar -cvf "$CRATE_NAME-${{ matrix.target }}.tar.gz" "$CRATE_NAME" && cd ../../..
       - name: Upload convert_world-${{ matrix.target }}.tar.gz
