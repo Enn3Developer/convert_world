@@ -159,8 +159,8 @@ fn replace_all_old_file(path: String, conversion_path: String, converted_path: S
     while let Ok(chunk) = rx_r.recv() {
         converted += 1;
         if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
-            chunk.level().x_pos() as usize,
-            chunk.level().z_pos() as usize,
+            (chunk.level().x_pos() as usize) % 32,
+            (chunk.level().z_pos() as usize) % 32,
             fastnbt::to_bytes(&chunk)
                 .expect("can't convert chunk to bytes")
                 .as_slice(),
