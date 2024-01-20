@@ -85,17 +85,17 @@ fn replace_all_old_file(
         .read(true);
     let converted_file = open_options.open(converted_path.clone()).unwrap();
 
-    println!("Reading input file {path}");
+    // println!("Reading input file {path}");
     let mut mca = Region::from_stream(file).unwrap();
-    println!("Creating output file {converted_path}");
+    // println!("Creating output file {converted_path}");
     let mut converted_mca = Region::new(converted_file).unwrap();
 
-    println!("Initializing data channels");
+    // println!("Initializing data channels");
     let (tx_c, rx_c) = flume::unbounded();
     let (tx_r, rx_r) = flume::unbounded();
     let mut threads = vec![];
 
-    println!("Initializing chunk threads");
+    // println!("Initializing chunk threads");
     for _ in 0..thread::available_parallelism().unwrap().get() {
         let rx_c = rx_c.clone();
         let tx_r = tx_r.clone();
@@ -127,7 +127,7 @@ fn replace_all_old_file(
 
     let mut read = 0;
 
-    println!("Reading chunks");
+    // println!("Reading chunks");
     for chunk in mca.iter().flatten() {
         read += 1;
         tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
@@ -135,7 +135,7 @@ fn replace_all_old_file(
 
     let mut converted = 0;
 
-    println!("Starting receiving converted chunks");
+    // println!("Starting receiving converted chunks");
     if read > 0 {
         while let Ok(chunk) = rx_r.recv() {
             converted += 1;
@@ -154,7 +154,7 @@ fn replace_all_old_file(
         }
     }
 
-    println!("Joining chunk threads");
+    // println!("Joining chunk threads");
     for _ in &threads {
         tx_c.send(ChunkMessage::JOIN).unwrap();
     }
@@ -163,7 +163,7 @@ fn replace_all_old_file(
         thread.join().unwrap();
     }
 
-    println!("Converted all chunks");
+    // println!("Converted all chunks");
 }
 
 fn read_conversion_file(
@@ -174,10 +174,10 @@ fn read_conversion_file(
 ) {
     let conversion_map = Arc::new(RwLock::new(HashMap::new()));
     let data_map = Arc::new(RwLock::new(HashMap::new()));
-    println!("Opening {}", conversion_path);
+    // println!("Opening {}", conversion_path);
     let mut conversion_file = File::open(conversion_path).unwrap();
     let mut conversion_content = String::new();
-    println!("Reading conversion file");
+    // println!("Reading conversion file");
     conversion_file
         .read_to_string(&mut conversion_content)
         .unwrap();
@@ -262,7 +262,7 @@ fn replace_all_old() {
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
-            println!("{}% done", updated / files.len() * 100);
+            println!("{}% done\r", updated / files.len() * 100);
             thread::sleep(Duration::from_secs(1));
         }
 
