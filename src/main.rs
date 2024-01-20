@@ -128,11 +128,6 @@ fn replace_all_old_file(
         tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
     }
 
-    println!("Joining chunk threads");
-    for _ in &threads {
-        tx_c.send(ChunkMessage::JOIN).unwrap();
-    }
-
     let mut converted = 0;
 
     println!("Starting receiving converted chunks");
@@ -151,6 +146,11 @@ fn replace_all_old_file(
         if converted == read {
             break;
         }
+    }
+
+    println!("Joining chunk threads");
+    for _ in &threads {
+        tx_c.send(ChunkMessage::JOIN).unwrap();
     }
 
     for thread in threads {
