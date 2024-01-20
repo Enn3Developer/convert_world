@@ -258,12 +258,20 @@ fn replace_all_old() {
         }
 
         let mut updated = 0;
+        let mut last_updated = 0;
 
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
             print!("\x1B[2J\x1B[1;1H");
-            println!("{}% done", updated / files.len() * 100);
+            println!(
+                "{}% done; {} rps",
+                updated / files.len() * 100,
+                (updated - last_updated) / 5
+            );
+            println!("Made by Enn3DevPlayer");
+            println!("Sponsor: N Inc.");
+            last_updated = updated;
             thread::sleep(Duration::from_secs(5));
         }
 
