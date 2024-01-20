@@ -135,19 +135,21 @@ fn replace_all_old_file(
     let mut converted = 0;
 
     println!("Starting receiving converted chunks");
-    while let Ok(chunk) = rx_r.recv() {
-        converted += 1;
-        if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
-            (chunk.level().x_pos() as usize) % 32,
-            (chunk.level().z_pos() as usize) % 32,
-            fastnbt::to_bytes(&chunk)
-                .expect("can't convert chunk to bytes")
-                .as_slice(),
-        ) {
-            println!("can't write chunk at x: {x}, z: {z}");
-        }
-        if converted == read {
-            break;
+    if read > 0 {
+        while let Ok(chunk) = rx_r.recv() {
+            converted += 1;
+            if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
+                (chunk.level().x_pos() as usize) % 32,
+                (chunk.level().z_pos() as usize) % 32,
+                fastnbt::to_bytes(&chunk)
+                    .expect("can't convert chunk to bytes")
+                    .as_slice(),
+            ) {
+                println!("can't write chunk at x: {x}, z: {z}");
+            }
+            if converted == read {
+                break;
+            }
         }
     }
 
