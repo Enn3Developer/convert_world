@@ -262,7 +262,8 @@ fn replace_all_old() {
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
-            print!("\r\033[K{}% done", updated / files.len() * 100);
+            print!("\x1B[2J\x1B[1;1H");
+            print!("{}% done", updated / files.len() * 100);
             thread::sleep(Duration::from_secs(5));
         }
 
