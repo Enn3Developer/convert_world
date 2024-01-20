@@ -275,6 +275,7 @@ fn replace_all_old() {
             );
             println!("Made by Enn3DevPlayer");
             println!("Sponsor: N Inc.");
+            println!("Special thanks to ChDon for the UI ideas");
             last_updated = updated;
             time += 5;
             thread::sleep(Duration::from_secs(5));
