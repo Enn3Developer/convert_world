@@ -263,7 +263,7 @@ fn replace_all_old() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
             print!("\x1B[2J\x1B[1;1H");
-            print!("{}% done", updated / files.len() * 100);
+            println!("{}% done", updated / files.len() * 100);
             thread::sleep(Duration::from_secs(5));
         }
 
