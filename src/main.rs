@@ -4,8 +4,9 @@ use fastnbt::error::Result;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::thread;
+use std::{fs, thread};
 
 fn convert_to_new() {
     let path = std::env::args().nth(1).unwrap();
@@ -67,11 +68,7 @@ enum ChunkMessage {
     CHUNK(Vec<u8>),
 }
 
-fn replace_all_old() {
-    let path = std::env::args().nth(1).unwrap();
-    let conversion_path = std::env::args().nth(2).unwrap();
-    let converted_path = std::env::args().nth(3).unwrap();
-
+fn replace_all_old_file(path: String, conversion_path: String, converted_path: String) {
     let file = File::open(path).unwrap();
     println!("Opening {}", conversion_path);
     let mut conversion_file = File::open(conversion_path).unwrap();
@@ -150,7 +147,6 @@ fn replace_all_old() {
 
     for chunk in mca.iter().flatten() {
         read += 1;
-        println!("Read {} chunks", read);
         tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
     }
 
@@ -162,7 +158,6 @@ fn replace_all_old() {
 
     while let Ok(chunk) = rx_r.recv() {
         converted += 1;
-        println!("Converted {} chunks", converted);
         converted_mca
             .write_chunk(
                 chunk.level().x_pos() as usize,
@@ -182,6 +177,54 @@ fn replace_all_old() {
     }
 
     println!("Converted all chunks");
+}
+
+fn replace_all_old() {
+    let is_file = std::env::args().nth(1).unwrap();
+    if &is_file == "file" {
+        let conversion_path = std::env::args().nth(2).unwrap();
+        let path = std::env::args().nth(3).unwrap();
+        let converted_path = std::env::args().nth(4).unwrap();
+        replace_all_old_file(path, conversion_path, converted_path);
+    } else {
+        let conversion_path = std::env::args().nth(2).unwrap();
+        let dir = std::env::args().nth(3).unwrap();
+        let out_dir = std::env::args().nth(4).unwrap();
+        let mut files = vec![];
+        let mut threads = vec![];
+        for file in fs::read_dir(dir.clone()).unwrap() {
+            let f = file.unwrap();
+            if f.file_name().to_str().unwrap().ends_with(".mca") {
+                files.push(f.file_name().to_str().unwrap().to_string());
+            }
+        }
+
+        for file in files {
+            let conversion_path = conversion_path.clone();
+            let mut path = PathBuf::new();
+            path.push(dir.clone());
+            path.push(file.clone());
+            let mut converted_path = PathBuf::new();
+            converted_path.push(out_dir.clone());
+            converted_path.push(file.clone());
+
+            threads.push(thread::spawn(move || {
+                replace_all_old_file(
+                    path.to_str().unwrap().to_string(),
+                    conversion_path,
+                    converted_path.to_str().unwrap().to_string(),
+                );
+            }))
+        }
+
+        let mut done = 0;
+
+        for thread in threads {
+            thread.join().unwrap();
+            done += 1;
+            println!("Converted {} regions", done);
+        }
+    }
 }
 
 fn main() {
