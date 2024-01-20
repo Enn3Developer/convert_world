@@ -106,6 +106,11 @@ fn replace_all_old_file(
             if let ChunkMessage::CHUNK(chunk_data) = message {
                 let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
                 if let Ok(mut chunk) = chunk {
+                    chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
+                        tile_entity.id() == "Chest"
+                            || tile_entity.id() == "Sign"
+                            || tile_entity.id() == "Skull"
+                    });
                     for section in chunk.mut_level().mut_sections().iter_mut() {
                         for (key, value) in conversion_map.read().unwrap().iter() {
                             if let Some(data) = data_map.read().unwrap().get(key) {

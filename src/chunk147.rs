@@ -55,6 +55,9 @@ impl Level {
     pub fn biomes(&self) -> Option<&ByteArray> {
         self.biomes.as_ref()
     }
+    pub fn mut_tile_entities(&mut self) -> &mut Vec<TileEntity> {
+        &mut self.tile_entities
+    }
     pub fn tile_entities(&self) -> &Vec<TileEntity> {
         &self.tile_entities
     }
@@ -210,7 +213,7 @@ impl Section {
         if old < 256 {
             self.replace_all_simple(convert_block_to_i8(&old), convert_block_to_i8(&new));
         } else {
-            if let Some(added) = &self.add {
+            if let Some(added) = &mut self.add {
                 for (idx, block) in self.blocks.iter_mut().enumerate() {
                     let b = convert_i8_to_block(*block);
                     let d = if idx % 2 == 0 {
@@ -221,6 +224,7 @@ impl Section {
                     let id = b + ((d as Block) << 8);
                     if id == old {
                         *block = convert_block_to_i8(&new);
+                        added[idx / 2] -= d << (4 * (idx % 2));
                     }
                 }
             }
