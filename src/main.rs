@@ -261,7 +261,7 @@ fn replace_all_old() {
         let mut last_updated = 0;
         let mut time = 0;
 
-        while updated <= files.len() {
+        while updated < files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
             print!("\x1B[2J\x1B[1;1H");
@@ -280,6 +280,8 @@ fn replace_all_old() {
             time += 5;
             thread::sleep(Duration::from_secs(5));
         }
+
+        println!("Done!");
 
         pool.join();
     }
