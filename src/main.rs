@@ -103,17 +103,20 @@ fn replace_all_old_file(
             let message: ChunkMessage = rx_c.recv().unwrap();
             if let ChunkMessage::CHUNK(chunk_data) = message {
                 let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
-                let mut chunk = chunk.unwrap();
-                for section in chunk.mut_level().mut_sections().iter_mut() {
-                    for (key, value) in conversion_map.read().unwrap().iter() {
-                        if let Some(data) = data_map.read().unwrap().get(key) {
-                            section.replace_all_data(*key, *value, *data);
-                        } else {
-                            section.replace_all(*key, *value);
+                if let Ok(mut chunk) = chunk {
+                    for section in chunk.mut_level().mut_sections().iter_mut() {
+                        for (key, value) in conversion_map.read().unwrap().iter() {
+                            if let Some(data) = data_map.read().unwrap().get(key) {
+                                section.replace_all_data(*key, *value, *data);
+                            } else {
+                                section.replace_all(*key, *value);
+                            }
                         }
                     }
+                    tx_r.send(chunk).unwrap();
+                } else {
+                    println!("Error reading chunk");
                 }
-                tx_r.send(chunk).unwrap();
             } else {
                 break;
             }
