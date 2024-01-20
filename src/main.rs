@@ -259,12 +259,10 @@ fn replace_all_old() {
 
         let mut updated = 0;
 
-        println!();
-
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
-            print!("{}% done\r", updated / files.len() * 100);
+            print!("\r\033[K{}% done", updated / files.len() * 100);
             thread::sleep(Duration::from_secs(5));
         }
 
