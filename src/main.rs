@@ -135,6 +135,7 @@ fn replace_all_old_file(
 
     let mut converted = 0;
 
+    println!("Starting receiving converted chunks");
     while let Ok(chunk) = rx_r.recv() {
         converted += 1;
         println!("Converted {converted} chunks");
