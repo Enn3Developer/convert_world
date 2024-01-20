@@ -191,13 +191,14 @@ fn replace_all_old() {
         let dir = std::env::args().nth(3).unwrap();
         let out_dir = std::env::args().nth(4).unwrap();
         let mut files = vec![];
-        let mut threads = vec![];
         for file in fs::read_dir(dir.clone()).unwrap() {
             let f = file.unwrap();
             if f.file_name().to_str().unwrap().ends_with(".mca") {
                 files.push(f.file_name().to_str().unwrap().to_string());
             }
         }
+
+        let pool = threadpool::Builder::new().build();
 
         for file in files {
             let conversion_path = conversion_path.clone();
@@ -208,22 +209,16 @@ fn replace_all_old() {
             converted_path.push(out_dir.clone());
             converted_path.push(file.clone());
 
-            threads.push(thread::spawn(move || {
+            pool.execute(move || {
                 replace_all_old_file(
                     path.to_str().unwrap().to_string(),
                     conversion_path,
                     converted_path.to_str().unwrap().to_string(),
                 );
-            }))
+            });
         }
 
-        let mut done = 0;
-
-        for thread in threads {
-            thread.join().unwrap();
-            done += 1;
-            println!("Converted {} regions", done);
-        }
+        pool.join();
     }
 }
 
