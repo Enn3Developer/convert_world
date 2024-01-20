@@ -68,10 +68,13 @@ enum ChunkMessage {
     CHUNK(Vec<u8>),
 }
 
-fn replace_all_old_file(path: String, conversion_path: String, converted_path: String) {
+fn replace_all_old_file(
+    path: String,
+    converted_path: String,
+    conversion_map: Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>>,
+    data_map: Arc<RwLock<HashMap<chunk147::Block, i8>>>,
+) {
     let file = File::open(path).unwrap();
-    println!("Opening {}", conversion_path);
-    let mut conversion_file = File::open(conversion_path).unwrap();
     let mut open_options = OpenOptions::new();
     open_options
         .write(true)
@@ -82,36 +85,6 @@ fn replace_all_old_file(path: String, conversion_path: String, converted_path: S
 
     let mut mca = Region::from_stream(file).unwrap();
     let mut converted_mca = Region::new(converted_file).unwrap();
-    let conversion_map = Arc::new(RwLock::new(HashMap::new()));
-    let data_map = Arc::new(RwLock::new(HashMap::new()));
-
-    let mut conversion_content = String::new();
-    println!("Reading conversion file");
-    conversion_file
-        .read_to_string(&mut conversion_content)
-        .unwrap();
-
-    for line in conversion_content.lines() {
-        let mut split = line.split("->");
-        let old_id = split
-            .nth(0)
-            .unwrap()
-            .trim()
-            .parse::<chunk147::Block>()
-            .unwrap();
-        let n = split.nth(0).unwrap().trim();
-        let new_id = if n.contains(":") {
-            let mut n_split = n.split(":");
-            let id = n_split.nth(0).unwrap().parse::<chunk147::Block>().unwrap();
-            let data = n_split.nth(0).unwrap().parse::<i8>().unwrap();
-
-            data_map.write().unwrap().insert(old_id, data);
-            id
-        } else {
-            n.parse::<chunk147::Block>().unwrap()
-        };
-        conversion_map.write().unwrap().insert(old_id, new_id);
-    }
 
     let (tx_c, rx_c) = flume::unbounded();
     let (tx_r, rx_r) = flume::unbounded();
@@ -180,17 +153,62 @@ fn replace_all_old_file(path: String, conversion_path: String, converted_path: S
     println!("Converted all chunks");
 }
 
+fn read_conversion_file(
+    conversion_path: String,
+) -> (
+    Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>>,
+    Arc<RwLock<HashMap<chunk147::Block, i8>>>,
+) {
+    let conversion_map = Arc::new(RwLock::new(HashMap::new()));
+    let data_map = Arc::new(RwLock::new(HashMap::new()));
+    println!("Opening {}", conversion_path);
+    let mut conversion_file = File::open(conversion_path).unwrap();
+    let mut conversion_content = String::new();
+    println!("Reading conversion file");
+    conversion_file
+        .read_to_string(&mut conversion_content)
+        .unwrap();
+
+    for line in conversion_content.lines() {
+        let mut split = line.split("->");
+        let old_id = split
+            .nth(0)
+            .unwrap()
+            .trim()
+            .parse::<chunk147::Block>()
+            .unwrap();
+        let n = split.nth(0).unwrap().trim();
+        let new_id = if n.contains(":") {
+            let mut n_split = n.split(":");
+            let id = n_split.nth(0).unwrap().parse::<chunk147::Block>().unwrap();
+            let data = n_split.nth(0).unwrap().parse::<i8>().unwrap();
+
+            data_map.write().unwrap().insert(old_id, data);
+            id
+        } else {
+            n.parse::<chunk147::Block>().unwrap()
+        };
+        conversion_map.write().unwrap().insert(old_id, new_id);
+    }
+
+    (conversion_map, data_map)
+}
+
 fn replace_all_old() {
     let is_file = std::env::args().nth(1).unwrap();
     if &is_file == "file" {
         let conversion_path = std::env::args().nth(2).unwrap();
         let path = std::env::args().nth(3).unwrap();
         let converted_path = std::env::args().nth(4).unwrap();
-        replace_all_old_file(path, conversion_path, converted_path);
+
+        let (conversion_map, data_map) = read_conversion_file(conversion_path);
+
+        replace_all_old_file(path, converted_path, conversion_map, data_map);
     } else {
         let conversion_path = std::env::args().nth(2).unwrap();
         let dir = std::env::args().nth(3).unwrap();
         let out_dir = std::env::args().nth(4).unwrap();
+        let (conversion_map, data_map) = read_conversion_file(conversion_path);
         let mut files = vec![];
         for file in fs::read_dir(dir.clone()).unwrap() {
             let f = file.unwrap();
@@ -202,7 +220,6 @@ fn replace_all_old() {
         let pool = threadpool::Builder::new().build();
 
         for file in files {
-            let conversion_path = conversion_path.clone();
             let mut path = PathBuf::new();
             path.push(dir.clone());
             path.push(file.clone());
@@ -210,11 +227,15 @@ fn replace_all_old() {
             converted_path.push(out_dir.clone());
             converted_path.push(file.clone());
 
+            let conversion_map = conversion_map.clone();
+            let data_map = data_map.clone();
+
             pool.execute(move || {
                 replace_all_old_file(
                     path.to_str().unwrap().to_string(),
-                    conversion_path,
                     converted_path.to_str().unwrap().to_string(),
+                    conversion_map,
+                    data_map,
                 );
             });
         }
