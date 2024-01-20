@@ -265,9 +265,11 @@ fn replace_all_old() {
 
             print!("\x1B[2J\x1B[1;1H");
             println!(
-                "{}% done; {} rps",
+                "{}% done; {} rps; {}/{}",
                 updated / files.len() * 100,
-                (updated - last_updated) / 5
+                (updated - last_updated) / 5,
+                updated,
+                files.len()
             );
             println!("Made by Enn3DevPlayer");
             println!("Sponsor: N Inc.");
