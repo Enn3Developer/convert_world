@@ -287,6 +287,7 @@ fn replace_all_old() {
         }
 
         println!("Done!");
+        println!("Took {time} seconds");
 
         pool.join();
     }
