@@ -262,8 +262,8 @@ fn replace_all_old() {
         while updated <= files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
 
-            println!("{}% done\r", updated / files.len() * 100);
-            thread::sleep(Duration::from_secs(1));
+            print!("{}% done\r", updated / files.len() * 100);
+            thread::sleep(Duration::from_secs(5));
         }
 
         pool.join();
