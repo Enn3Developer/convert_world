@@ -158,6 +158,7 @@ fn replace_all_old_file(path: String, conversion_path: String, converted_path: S
 
     while let Ok(chunk) = rx_r.recv() {
         converted += 1;
+        println!("Converted {converted} chunks");
         if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
             (chunk.level().x_pos() as usize) % 32,
             (chunk.level().z_pos() as usize) % 32,
