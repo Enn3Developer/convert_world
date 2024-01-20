@@ -74,22 +74,26 @@ fn replace_all_old_file(
     conversion_map: Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>>,
     data_map: Arc<RwLock<HashMap<chunk147::Block, i8>>>,
 ) {
-    let file = File::open(path).unwrap();
+    let file = File::open(path.clone()).unwrap();
     let mut open_options = OpenOptions::new();
     open_options
         .write(true)
         .create(true)
         .truncate(true)
         .read(true);
-    let converted_file = open_options.open(converted_path).unwrap();
+    let converted_file = open_options.open(converted_path.clone()).unwrap();
 
+    println!("Reading input file {path}");
     let mut mca = Region::from_stream(file).unwrap();
+    println!("Creating output file {converted_path}");
     let mut converted_mca = Region::new(converted_file).unwrap();
 
+    println!("Initializing data channels");
     let (tx_c, rx_c) = flume::unbounded();
     let (tx_r, rx_r) = flume::unbounded();
     let mut threads = vec![];
 
+    println!("Initializing chunk threads");
     for _ in 0..thread::available_parallelism().unwrap().get() {
         let rx_c = rx_c.clone();
         let tx_r = tx_r.clone();
@@ -118,11 +122,13 @@ fn replace_all_old_file(
 
     let mut read = 0;
 
+    println!("Reading chunks");
     for chunk in mca.iter().flatten() {
         read += 1;
         tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
     }
 
+    println!("Joining chunk threads");
     for _ in &threads {
         tx_c.send(ChunkMessage::JOIN).unwrap();
     }
