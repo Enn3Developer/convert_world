@@ -13,6 +13,7 @@ bit_field = "0.10.2"
 flume = "0.11.0"
 threadpool = "1.8.1"
 hashbrown = "0.14.3"
+rayon = "1.8.1"
 
 [profile.release]
 lto = "fat"
