@@ -23,7 +23,7 @@ impl Block {
     }
 
     pub fn from_i8(block: i8) -> Self {
-        let mut id = 0 as i32;
+        let mut id = 0i32;
 
         id |= (block & 0b01111111) as i32;
         id |= (((block >> 7) as i32) & 0b1) << 7;
