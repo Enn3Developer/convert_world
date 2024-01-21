@@ -19,7 +19,7 @@ impl Block {
     }
 
     pub fn add_to_i8(&self) -> i8 {
-        ((self.id & 0b111100000000) >> 8) as i8
+        ((self.id - (self.id & 0b11111111)) >> 8) as i8
     }
 
     pub fn from_i8(block: i8) -> Self {
@@ -266,7 +266,7 @@ impl Section {
     fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
             if let Some(data_arr) = &mut self.data {
-                let (mask, shift) = if idx % 2 == 1 {
+                let (mask, shift) = if idx % 2 == 0 {
                     (0b1111, 0)
                 } else {
                     (-0b1110000, 4)
@@ -277,7 +277,7 @@ impl Section {
         }
 
         if let Some(added) = &mut self.add {
-            let (mask, shift) = if idx % 2 == 1 {
+            let (mask, shift) = if idx % 2 == 0 {
                 (0b1111, 0)
             } else {
                 (-0b1110000, 4)
