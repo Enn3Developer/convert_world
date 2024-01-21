@@ -198,15 +198,22 @@ fn replace_all_old() {
 
         while updated < files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
+            let mean_rps = if time == 0 { 0 } else { updated / time };
+            let eta = if mean_rps == 0 {
+                0
+            } else {
+                (files.len() - updated) / mean_rps
+            };
 
             print!("\x1B[2J\x1B[1;1H");
             println!(
-                "{}% done; {} instantaneous rps; {} mean rps; {}/{}",
+                "{}% done; {} instantaneous rps; {} mean rps; {}/{}; ETA: {}s",
                 updated * 100 / files.len(),
                 (updated - last_updated) / 5,
-                if time == 0 { 0 } else { updated / time },
+                mean_rps,
                 updated,
-                files.len()
+                files.len(),
+                eta
             );
             println!("Made by Enn3DevPlayer");
             println!("Sponsor: N Inc.");

@@ -277,11 +277,6 @@ impl Section {
         }
 
         if let Some(added) = &mut self.add {
-            let (mask, shift) = if idx % 2 == 0 {
-                (0b1111, 0)
-            } else {
-                (-0b1110000, 4)
-            };
             let d = if idx % 2 == 0 {
                 added[idx / 2] & 0x0F
             } else {
@@ -289,8 +284,6 @@ impl Section {
             };
             self.blocks[idx] = new_block.to_i8();
             added[idx / 2] -= d << (4 * (idx % 2));
-            // added[idx / 2] &= !mask;
-            // added[idx / 2] |= new_block.add_to_i8() << shift;
         }
     }
 }
