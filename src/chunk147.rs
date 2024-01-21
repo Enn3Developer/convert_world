@@ -227,7 +227,7 @@ impl Section {
     }
 
     pub fn replace_all_blocks(&mut self, conversion_map: Arc<RwLock<HashMap<Block, Block>>>) {
-        let mut conversion = HashMap::new();
+        let mut conversion = hashbrown::HashMap::new();
         if let Some(added) = &self.add {
             for (idx, block) in self.blocks.iter_mut().enumerate() {
                 let mut b = Block::from_i8(*block);
