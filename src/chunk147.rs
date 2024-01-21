@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Eq, Hash, PartialEq, Clone)]
 pub struct Block {
     id: i32,
     data: Option<i8>,
@@ -227,6 +227,7 @@ impl Section {
     }
 
     pub fn replace_all_blocks(&mut self, conversion_map: Arc<RwLock<HashMap<Block, Block>>>) {
+        let mut conversion = HashMap::new();
         if let Some(added) = &self.add {
             for (idx, block) in self.blocks.iter_mut().enumerate() {
                 let mut b = Block::from_i8(*block);
@@ -244,21 +245,27 @@ impl Section {
                     };
                     b.data = Some(d);
                 }
-                if let Some(new_block) = conversion_map.read().unwrap().get(&b) {
-                    self.replace_block(idx, new_block);
-                } else {
-                    b.data = None;
-                    if let Some(new_block) = conversion_map.read().unwrap().get(&b) {
-                        self.replace_block(idx, new_block);
+                if let Ok(conversion_map) = conversion_map.read() {
+                    if let Some(new_block) = conversion_map.get(&b) {
+                        conversion.insert(idx, new_block.clone());
+                    } else {
+                        b.data = None;
+                        if let Some(new_block) = conversion_map.get(&b) {
+                            conversion.insert(idx, new_block.clone());
+                        }
                     }
                 }
             }
+        }
+
+        for (key, value) in conversion {
+            self.replace_block(key, &value);
         }
     }
 
     fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
-            if let Some(data_arr) = &self.data {
+            if let Some(data_arr) = &mut self.data {
                 let (mask, shift) = if idx % 2 == 0 {
                     (0b1111, 0)
                 } else {
@@ -269,7 +276,7 @@ impl Section {
             }
         }
 
-        if let Some(added) = &self.add {
+        if let Some(added) = &mut self.add {
             let (mask, shift) = if idx % 2 == 0 {
                 (0b1111, 0)
             } else {
