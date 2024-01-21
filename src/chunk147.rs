@@ -277,7 +277,7 @@ impl Section {
         }
 
         if let Some(added) = &mut self.add {
-            let (mask, shift) = if idx % 2 == 0 {
+            let (mask, shift) = if idx % 2 == 1 {
                 (0b1111, 0)
             } else {
                 (-0b1110000, 4)
