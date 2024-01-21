@@ -266,7 +266,7 @@ impl Section {
     fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
             if let Some(data_arr) = &mut self.data {
-                let (mask, shift) = if idx % 2 == 0 {
+                let (mask, shift) = if idx % 2 == 1 {
                     (0b1111, 0)
                 } else {
                     (-0b1110000, 4)
@@ -277,7 +277,7 @@ impl Section {
         }
 
         if let Some(added) = &mut self.add {
-            let (mask, shift) = if idx % 2 == 0 {
+            let (mask, shift) = if idx % 2 == 1 {
                 (0b1111, 0)
             } else {
                 (-0b1110000, 4)
