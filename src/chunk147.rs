@@ -277,14 +277,14 @@ impl Section {
         }
 
         if let Some(added) = &mut self.add {
-            let (mask, shift) = if idx % 2 == 1 {
+            let (mask, shift) = if idx % 2 == 0 {
                 (0b1111, 0)
             } else {
                 (-0b1110000, 4)
             };
             self.blocks[idx] = new_block.to_i8();
             added[idx / 2] &= !mask;
-            added[idx / 2] |= new_block.add_to_i8() << shift;
+            // added[idx / 2] |= new_block.add_to_i8() << shift;
         }
     }
 }
