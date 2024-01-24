@@ -266,13 +266,13 @@ impl Section {
     fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
             if let Some(data_arr) = &mut self.data {
-                let (mask, shift) = if idx % 2 == 0 {
-                    (0b1111, 0)
+                let d = if idx % 2 == 0 {
+                    data_arr[idx / 2] & 0x0F
                 } else {
-                    (-0b1110000, 4)
+                    (data_arr[idx / 2] >> 4) & 0x0F
                 };
-                data_arr[idx / 2] &= !mask;
-                data_arr[idx / 2] |= new_data << shift;
+                data_arr[idx / 2] -= d << (4 * (idx % 2));
+                data_arr[idx / 2] += new_data << (4 * (idx % 2));
             }
         }
 
@@ -284,6 +284,7 @@ impl Section {
             };
             self.blocks[idx] = new_block.to_i8();
             added[idx / 2] -= d << (4 * (idx % 2));
+            added[idx / 2] += new_block.add_to_i8() << (4 * (idx % 2));
         }
     }
 }
