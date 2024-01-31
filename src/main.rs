@@ -1,7 +1,6 @@
 use convert_world::chunk147;
 use fastanvil::{Error, Region};
 use fastnbt::error::Result;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -55,7 +54,7 @@ fn replace_all_old_file(
                     chunk
                         .mut_level()
                         .mut_sections()
-                        .par_iter_mut()
+                        .iter_mut()
                         .for_each(|section| {
                             section.replace_all_blocks(conversion_map.clone());
                         });
