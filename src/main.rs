@@ -203,7 +203,7 @@ fn replace_all_old() {
             } else {
                 updated as f32 / time
             };
-            let eta = if mean_rps < 0.1 {
+            let eta = if mean_rps < 0.5 {
                 0
             } else {
                 (files.len() - updated) / mean_rps as usize
