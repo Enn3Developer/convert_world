@@ -227,8 +227,8 @@ impl Section {
     }
 
     pub fn replace_all_blocks(&mut self, conversion_map: Arc<RwLock<HashMap<Block, Block>>>) {
-        let mut conversion = hashbrown::HashMap::new();
-        for (idx, block) in self.blocks.iter_mut().enumerate() {
+        let mut conversion = Vec::with_capacity(1024);
+        for (idx, block) in self.blocks.iter().enumerate() {
             let mut b = Block::from_i8(*block);
 
             let d = if let Some(added) = &self.add {
@@ -251,18 +251,18 @@ impl Section {
             }
             if let Ok(conversion_map) = conversion_map.read() {
                 if let Some(new_block) = conversion_map.get(&b) {
-                    conversion.insert(idx, new_block.clone());
+                    conversion.push((idx, new_block.clone()));
                 } else {
                     b.data = None;
                     if let Some(new_block) = conversion_map.get(&b) {
-                        conversion.insert(idx, new_block.clone());
+                        conversion.push((idx, new_block.clone()));
                     }
                 }
             }
         }
 
-        for (key, value) in conversion {
-            self.replace_block(key, &value);
+        for (idx, block) in conversion {
+            self.replace_block(idx, &block);
         }
     }
 
@@ -285,9 +285,10 @@ impl Section {
             } else {
                 (added[idx / 2] >> 4) & 0x0F
             };
-            self.blocks[idx] = new_block.to_i8();
             added[idx / 2] -= d << (4 * (idx % 2));
             added[idx / 2] += new_block.add_to_i8() << (4 * (idx % 2));
         }
+
+        self.blocks[idx] = new_block.to_i8();
     }
 }
