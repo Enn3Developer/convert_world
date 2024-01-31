@@ -198,20 +198,20 @@ fn replace_all_old() {
 
         while updated < files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
-            let mean_rps = if time < 0.1 {
+            let mean_rps = if time == 0.0 {
                 0.0
             } else {
                 updated as f32 / time
             };
-            let eta = if mean_rps < 0.5 {
-                0
+            let eta = if mean_rps == 0.0 {
+                0.0
             } else {
-                (files.len() - updated) / mean_rps as usize
+                (files.len() - updated) as f32 / mean_rps
             };
 
             print!("\x1B[2J\x1B[1;1H");
             println!(
-                "{:.2}% done; {:.2} instantaneous rps; {:.2} mean rps; {}/{}; ETA: {}s",
+                "{:.2}% done; {:.2} instantaneous rps; {:.2} mean rps; {}/{}; ETA: {:.1}s",
                 (updated as f32) * 100.0 / (files.len() as f32),
                 ((updated - last_updated) as f32) / 5.0,
                 mean_rps,
