@@ -228,31 +228,34 @@ impl Section {
 
     pub fn replace_all_blocks(&mut self, conversion_map: Arc<RwLock<HashMap<Block, Block>>>) {
         let mut conversion = hashbrown::HashMap::new();
-        if let Some(added) = &self.add {
-            for (idx, block) in self.blocks.iter_mut().enumerate() {
-                let mut b = Block::from_i8(*block);
-                let d = if idx % 2 == 0 {
+        for (idx, block) in self.blocks.iter_mut().enumerate() {
+            let mut b = Block::from_i8(*block);
+
+            let d = if let Some(added) = &self.add {
+                if idx % 2 == 0 {
                     added[idx / 2] & 0x0F
                 } else {
                     (added[idx / 2] >> 4) & 0x0F
-                };
-                b.id += (d as i32) << 8;
-                if let Some(data_arr) = &self.data {
-                    let d = if idx % 2 == 0 {
-                        data_arr[idx / 2] & 0x0F
-                    } else {
-                        (data_arr[idx / 2] >> 4) & 0x0F
-                    };
-                    b.data = Some(d);
                 }
-                if let Ok(conversion_map) = conversion_map.read() {
+            } else {
+                0
+            };
+            b.id += (d as i32) << 8;
+            if let Some(data_arr) = &self.data {
+                let d = if idx % 2 == 0 {
+                    data_arr[idx / 2] & 0x0F
+                } else {
+                    (data_arr[idx / 2] >> 4) & 0x0F
+                };
+                b.data = Some(d);
+            }
+            if let Ok(conversion_map) = conversion_map.read() {
+                if let Some(new_block) = conversion_map.get(&b) {
+                    conversion.insert(idx, new_block.clone());
+                } else {
+                    b.data = None;
                     if let Some(new_block) = conversion_map.get(&b) {
                         conversion.insert(idx, new_block.clone());
-                    } else {
-                        b.data = None;
-                        if let Some(new_block) = conversion_map.get(&b) {
-                            conversion.insert(idx, new_block.clone());
-                        }
                     }
                 }
             }
