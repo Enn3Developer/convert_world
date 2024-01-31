@@ -194,22 +194,26 @@ fn replace_all_old() {
 
         let mut updated = 0;
         let mut last_updated = 0;
-        let mut time = 0;
+        let mut time = 0.0;
 
         while updated < files.len() {
             updated = counter.fetch_add(0, Ordering::SeqCst);
-            let mean_rps = if time == 0 { 0 } else { updated / time };
-            let eta = if mean_rps == 0 {
+            let mean_rps = if time == 0.0 {
+                0.0
+            } else {
+                updated as f32 / time
+            };
+            let eta = if mean_rps == 0.0 {
                 0
             } else {
-                (files.len() - updated) / mean_rps
+                (files.len() - updated) / mean_rps as usize
             };
 
             print!("\x1B[2J\x1B[1;1H");
             println!(
-                "{}% done; {} instantaneous rps; {} mean rps; {}/{}; ETA: {}s",
-                updated * 100 / files.len(),
-                (updated - last_updated) / 5,
+                "{:.2}% done; {:.2} instantaneous rps; {:.2} mean rps; {}/{}; ETA: {}s",
+                (updated as f32) * 100.0 / (files.len() as f32),
+                ((updated - last_updated) as f32) / 5.0,
                 mean_rps,
                 updated,
                 files.len(),
@@ -219,7 +223,7 @@ fn replace_all_old() {
             println!("Sponsor: N Inc.");
             println!("Special thanks to ChDon for the UI ideas");
             last_updated = updated;
-            time += 5;
+            time += 5.0;
             thread::sleep(Duration::from_secs(5));
         }
 
