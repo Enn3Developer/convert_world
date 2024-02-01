@@ -226,7 +226,10 @@ impl Section {
         Block { id: block, data }
     }
 
-    pub fn replace_all_blocks(&mut self, conversion_map: Arc<RwLock<HashMap<Block, Block>>>) {
+    pub fn replace_all_blocks(
+        &mut self,
+        conversion_map: Arc<RwLock<HashMap<Block, Block>>>,
+    ) -> bool {
         let mut conversion = Vec::with_capacity(1024);
         for (idx, block) in self.blocks.iter().enumerate() {
             let mut b = Block::from_i8(*block);
@@ -261,9 +264,11 @@ impl Section {
             }
         }
 
-        for (idx, block) in conversion {
-            self.replace_block(idx, &block);
+        for (idx, block) in &conversion {
+            self.replace_block(*idx, block);
         }
+
+        !conversion.is_empty()
     }
 
     fn replace_block(&mut self, idx: usize, new_block: &Block) {

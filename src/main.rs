@@ -15,6 +15,11 @@ enum ChunkMessage {
     CHUNK(Vec<u8>),
 }
 
+enum ChunkResult {
+    CHUNK(chunk147::Chunk),
+    EMPTY,
+}
+
 fn replace_all_old_file(
     path: String,
     converted_path: String,
@@ -45,20 +50,53 @@ fn replace_all_old_file(
             if let ChunkMessage::CHUNK(chunk_data) = message {
                 let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
                 if let Ok(mut chunk) = chunk {
-                    chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
-                        tile_entity.id() == "Chest"
+                    let mut modified = false;
+                    for tile_entity in chunk.level().tile_entities() {
+                        if !(tile_entity.id() == "Chest"
                             || tile_entity.id() == "Sign"
                             || tile_entity.id() == "Skull"
-                            || tile_entity.id() == "MobSpawner"
-                    });
-                    chunk
-                        .mut_level()
-                        .mut_sections()
-                        .iter_mut()
-                        .for_each(|section| {
-                            section.replace_all_blocks(conversion_map.clone());
+                            || tile_entity.id() == "MobSpawner")
+                        {
+                            modified = true;
+                        }
+                    }
+
+                    if modified {
+                        chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
+                            tile_entity.id() == "Chest"
+                                || tile_entity.id() == "Sign"
+                                || tile_entity.id() == "Skull"
+                                || tile_entity.id() == "MobSpawner"
                         });
-                    tx_r.send(chunk).unwrap();
+                    }
+
+                    if !modified {
+                        if let Ok(conversion_map) = conversion_map.read() {
+                            'modified: for section in chunk.level().sections() {
+                                for i in 0..section.blocks().len() {
+                                    let block = section.blocks()[i];
+                                    for old_block in conversion_map.keys() {
+                                        if old_block.to_i8() == block {
+                                            modified = true;
+                                            break 'modified;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if modified {
+                        chunk
+                            .mut_level()
+                            .mut_sections()
+                            .iter_mut()
+                            .for_each(|section| {
+                                section.replace_all_blocks(conversion_map.clone());
+                            });
+                        tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
+                    } else {
+                        tx_r.send(ChunkResult::EMPTY).unwrap();
+                    }
                 } else {
                     println!("Error reading chunk");
                 }
@@ -80,14 +118,16 @@ fn replace_all_old_file(
     if read > 0 {
         while let Ok(chunk) = rx_r.recv() {
             converted += 1;
-            if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
-                (chunk.level().x_pos() as usize) % 32,
-                (chunk.level().z_pos() as usize) % 32,
-                fastnbt::to_bytes(&chunk)
-                    .expect("can't convert chunk to bytes")
-                    .as_slice(),
-            ) {
-                println!("can't write chunk at x: {x}, z: {z}");
+            if let ChunkResult::CHUNK(chunk) = chunk {
+                if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
+                    (chunk.level().x_pos() as usize) % 32,
+                    (chunk.level().z_pos() as usize) % 32,
+                    fastnbt::to_bytes(&chunk)
+                        .expect("can't convert chunk to bytes")
+                        .as_slice(),
+                ) {
+                    println!("can't write chunk at x: {x}, z: {z}");
+                }
             }
             if converted == read {
                 break;
