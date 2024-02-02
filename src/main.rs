@@ -26,79 +26,71 @@ fn replace_all_old_file(
     conversion_map: Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>>,
 ) {
     let file = File::open(path.clone()).unwrap();
-    let mut open_options = OpenOptions::new();
-    open_options
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .read(true);
-    let converted_file = open_options.open(converted_path.clone()).unwrap();
-
     let mut mca = Region::from_stream(file).unwrap();
-    let mut converted_mca = Region::new(converted_file).unwrap();
+    let mut are_chunks = false;
 
-    let (tx_c, rx_c) = flume::unbounded();
-    let (tx_r, rx_r) = flume::unbounded();
-    let mut threads = vec![];
+    for _ in mca.iter().flatten() {
+        are_chunks = true;
+        break;
+    }
 
-    for _ in 0..thread::available_parallelism().unwrap().get() {
-        let rx_c = rx_c.clone();
-        let tx_r = tx_r.clone();
-        let conversion_map = conversion_map.clone();
-        threads.push(thread::spawn(move || loop {
-            let message: ChunkMessage = rx_c.recv().unwrap();
-            if let ChunkMessage::CHUNK(chunk_data) = message {
-                let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
-                if let Ok(mut chunk) = chunk {
-                    chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
-                        tile_entity.id() == "Chest"
-                            || tile_entity.id() == "Sign"
-                            || tile_entity.id() == "Skull"
-                            || tile_entity.id() == "MobSpawner"
-                    });
+    if are_chunks {
+        let mut open_options = OpenOptions::new();
+        open_options
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .read(true);
+        let converted_file = open_options.open(converted_path.clone()).unwrap();
+        let mut converted_mca = Region::new(converted_file).unwrap();
 
-                    if let Ok(conversion_map) = conversion_map.read() {
-                        for (old_block, new_block) in conversion_map.iter() {
-                            // chunk
-                            //     .mut_level()
-                            //     .mut_sections()
-                            //     .par_iter_mut()
-                            //     .for_each(|section| {
-                            //         section.replace_all(old_block, new_block);
-                            //     });
-                            for section in chunk.mut_level().mut_sections() {
-                                section.replace_all(old_block, new_block);
+        let (tx_c, rx_c) = flume::unbounded();
+        let (tx_r, rx_r) = flume::unbounded();
+        let mut threads = vec![];
+
+        for _ in 0..thread::available_parallelism().unwrap().get() {
+            let rx_c = rx_c.clone();
+            let tx_r = tx_r.clone();
+            let conversion_map = conversion_map.clone();
+            threads.push(thread::spawn(move || loop {
+                let message: ChunkMessage = rx_c.recv().unwrap();
+                if let ChunkMessage::CHUNK(chunk_data) = message {
+                    let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
+                    if let Ok(mut chunk) = chunk {
+                        chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
+                            tile_entity.id() == "Chest"
+                                || tile_entity.id() == "Sign"
+                                || tile_entity.id() == "Skull"
+                                || tile_entity.id() == "MobSpawner"
+                        });
+
+                        if let Ok(conversion_map) = conversion_map.read() {
+                            for (old_block, new_block) in conversion_map.iter() {
+                                for section in chunk.mut_level().mut_sections() {
+                                    section.replace_all(old_block, new_block);
+                                }
                             }
                         }
+
+                        tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
+                    } else {
+                        println!("Error reading chunk");
                     }
-
-                    // chunk
-                    //     .mut_level()
-                    //     .mut_sections()
-                    //     .iter_mut()
-                    //     .for_each(|section| {
-                    //         section.replace_all_blocks(conversion_map.clone());
-                    //     });
-                    tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
                 } else {
-                    println!("Error reading chunk");
+                    break;
                 }
-            } else {
-                break;
-            }
-        }));
-    }
+            }));
+        }
 
-    let mut read = 0;
+        let mut read = 0;
 
-    for chunk in mca.iter().flatten() {
-        read += 1;
-        tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
-    }
+        for chunk in mca.iter().flatten() {
+            read += 1;
+            tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
+        }
 
-    let mut converted = 0;
+        let mut converted = 0;
 
-    if read > 0 {
         while let Ok(chunk) = rx_r.recv() {
             converted += 1;
             if let ChunkResult::CHUNK(chunk) = chunk {
@@ -116,14 +108,14 @@ fn replace_all_old_file(
                 break;
             }
         }
-    }
 
-    for _ in &threads {
-        tx_c.send(ChunkMessage::JOIN).unwrap();
-    }
+        for _ in &threads {
+            tx_c.send(ChunkMessage::JOIN).unwrap();
+        }
 
-    for thread in threads {
-        thread.join().unwrap();
+        for thread in threads {
+            thread.join().unwrap();
+        }
     }
 }
 
@@ -190,7 +182,10 @@ fn replace_all_old() {
         }
 
         let pool = threadpool::Builder::new()
-            .num_threads(thread::available_parallelism().unwrap().get() * 8)
+            .num_threads(
+                thread::available_parallelism().unwrap().get()
+                    * thread::available_parallelism().unwrap().get(),
+            )
             .build();
         let counter = Arc::new(AtomicUsize::new(0));
 
