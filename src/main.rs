@@ -1,19 +1,18 @@
 use convert_world::chunk147;
 use fastanvil::{Error, Region};
 use rayon::iter::{ParallelBridge, ParallelIterator};
-use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::{fs, thread};
+use std::{cmp, fs, thread};
 
 fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
-    conversion_map: Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>>,
+    conversion_map: Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>>,
 ) {
     let file = File::open(path).unwrap();
     let mut mca = Region::from_stream(file).unwrap();
@@ -88,8 +87,8 @@ fn read_id(n: &str) -> chunk147::Block {
 
 fn read_conversion_file(
     conversion_path: String,
-) -> Arc<RwLock<HashMap<chunk147::Block, chunk147::Block>>> {
-    let conversion_map = Arc::new(RwLock::new(HashMap::new()));
+) -> Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>> {
+    let mut conversion_map = vec![];
     let mut conversion_file = File::open(conversion_path).unwrap();
     let mut conversion_content = String::new();
     conversion_file
@@ -104,10 +103,24 @@ fn read_conversion_file(
         let old_id = read_id(o);
         let new_id = read_id(n);
 
-        conversion_map.write().unwrap().insert(old_id, new_id);
+        conversion_map.push((old_id, new_id));
     }
 
-    conversion_map
+    conversion_map.sort_by(|(a, _), (b, _)| {
+        return if a.has_data() && !b.has_data() {
+            cmp::Ordering::Less
+        } else if b.has_data() && !a.has_data() {
+            cmp::Ordering::Greater
+        } else {
+            if a.id() == b.id() {
+                a.data().unwrap().cmp(&b.data().unwrap())
+            } else {
+                a.id().cmp(&b.id())
+            }
+        };
+    });
+
+    Arc::new(RwLock::new(conversion_map))
 }
 
 fn replace_all_old() {

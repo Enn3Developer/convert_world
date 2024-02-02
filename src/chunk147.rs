@@ -30,6 +30,18 @@ impl Block {
 
         Self { id, data: None }
     }
+
+    pub fn has_data(&self) -> bool {
+        self.data.is_some()
+    }
+
+    pub fn id(&self) -> i32 {
+        self.id
+    }
+
+    pub fn data(&self) -> Option<i8> {
+        self.data
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
