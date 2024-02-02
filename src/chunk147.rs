@@ -271,7 +271,46 @@ impl Section {
         !conversion.is_empty()
     }
 
-    fn replace_block(&mut self, idx: usize, new_block: &Block) {
+    pub fn replace_all(&mut self, old: &Block, new: &Block) {
+        let mut conversion = Vec::with_capacity(128);
+
+        for (idx, block) in self.blocks.iter().enumerate() {
+            if *block == old.to_i8() {
+                let data = if let Some(data_arr) = &self.data {
+                    if idx % 2 == 0 {
+                        data_arr[idx / 2] & 0x0F
+                    } else {
+                        (data_arr[idx / 2] >> 4) & 0x0F
+                    }
+                } else {
+                    0
+                };
+                if old.data.is_none() || old.data.unwrap() == data {
+                    if old.id < 256 {
+                        conversion.push((idx, new));
+                    } else {
+                        if let Some(added) = &self.add {
+                            let d = if idx % 2 == 0 {
+                                added[idx / 2] & 0x0F
+                            } else {
+                                (added[idx / 2] >> 4) & 0x0F
+                            };
+                            let id = (*block as i32) + (d as i32) << 8;
+                            if id == old.id {
+                                conversion.push((idx, new));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (idx, block) in conversion {
+            self.replace_block(idx, block);
+        }
+    }
+
+    pub fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
             if let Some(data_arr) = &mut self.data {
                 let d = if idx % 2 == 0 {

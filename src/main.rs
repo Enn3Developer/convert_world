@@ -58,6 +58,7 @@ fn replace_all_old_file(
                             || tile_entity.id() == "MobSpawner")
                         {
                             modified = true;
+                            break;
                         }
                     }
 
@@ -86,13 +87,21 @@ fn replace_all_old_file(
                         }
                     }
                     if modified {
-                        chunk
-                            .mut_level()
-                            .mut_sections()
-                            .iter_mut()
-                            .for_each(|section| {
-                                section.replace_all_blocks(conversion_map.clone());
-                            });
+                        if let Ok(conversion_map) = conversion_map.read() {
+                            for (old_block, new_block) in conversion_map.iter() {
+                                for section in chunk.mut_level().mut_sections() {
+                                    section.replace_all(old_block, new_block);
+                                }
+                            }
+                        }
+
+                        // chunk
+                        //     .mut_level()
+                        //     .mut_sections()
+                        //     .iter_mut()
+                        //     .for_each(|section| {
+                        //         section.replace_all_blocks(conversion_map.clone());
+                        //     });
                         tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
                     } else {
                         tx_r.send(ChunkResult::EMPTY).unwrap();
