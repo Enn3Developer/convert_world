@@ -1,6 +1,5 @@
 use convert_world::chunk147;
 use fastanvil::{Error, Region};
-use fastnbt::error::Result;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -11,16 +10,6 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::{fs, thread};
 
-enum ChunkMessage {
-    JOIN,
-    CHUNK(Vec<u8>),
-}
-
-enum ChunkResult {
-    CHUNK(chunk147::Chunk),
-    EMPTY,
-}
-
 fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
@@ -30,9 +19,8 @@ fn replace_all_old_file(
     let mut mca = Region::from_stream(file).unwrap();
     let mut are_chunks = false;
 
-    for _ in mca.iter().flatten() {
+    if mca.iter().flatten().next().is_some() {
         are_chunks = true;
-        break;
     }
 
     if are_chunks {
@@ -83,79 +71,18 @@ fn replace_all_old_file(
                 }
             }
         }
-        //
-        // let (tx_c, rx_c) = flume::unbounded();
-        // let (tx_r, rx_r) = flume::unbounded();
-        // let mut threads = vec![];
-        //
-        // for _ in 0..thread::available_parallelism().unwrap().get() {
-        //     let rx_c = rx_c.clone();
-        //     let tx_r = tx_r.clone();
-        //     let conversion_map = conversion_map.clone();
-        //     threads.push(thread::spawn(move || loop {
-        //         let message: ChunkMessage = rx_c.recv().unwrap();
-        //         if let ChunkMessage::CHUNK(chunk_data) = message {
-        //             let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
-        //             if let Ok(mut chunk) = chunk {
-        //                 chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
-        //                     tile_entity.id() == "Chest"
-        //                         || tile_entity.id() == "Sign"
-        //                         || tile_entity.id() == "Skull"
-        //                         || tile_entity.id() == "MobSpawner"
-        //                 });
-        //
-        //                 if let Ok(conversion_map) = conversion_map.read() {
-        //                     for (old_block, new_block) in conversion_map.iter() {
-        //                         for section in chunk.mut_level().mut_sections() {
-        //                             section.replace_all(old_block, new_block);
-        //                         }
-        //                     }
-        //                 }
-        //
-        //                 tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
-        //             } else {
-        //                 println!("Error reading chunk");
-        //             }
-        //         } else {
-        //             break;
-        //         }
-        //     }));
-        // }
-        //
-        // let mut read = 0;
-        //
-        // for chunk in mca.iter().flatten() {
-        //     read += 1;
-        //     tx_c.send(ChunkMessage::CHUNK(chunk.data)).unwrap();
-        // }
-        //
-        // let mut converted = 0;
-        //
-        // while let Ok(chunk) = rx_r.recv() {
-        //     converted += 1;
-        //     if let ChunkResult::CHUNK(chunk) = chunk {
-        //         if let Err(Error::InvalidOffset(x, z)) = converted_mca.write_chunk(
-        //             (chunk.level().x_pos() as usize) % 32,
-        //             (chunk.level().z_pos() as usize) % 32,
-        //             fastnbt::to_bytes(&chunk)
-        //                 .expect("can't convert chunk to bytes")
-        //                 .as_slice(),
-        //         ) {
-        //             println!("can't write chunk at x: {x}, z: {z}");
-        //         }
-        //     }
-        //     if converted == read {
-        //         break;
-        //     }
-        // }
-        //
-        // for _ in &threads {
-        //     tx_c.send(ChunkMessage::JOIN).unwrap();
-        // }
-        //
-        // for thread in threads {
-        //     thread.join().unwrap();
-        // }
+    }
+}
+
+fn read_id(n: &str) -> chunk147::Block {
+    if n.contains(':') {
+        let mut n_split = n.split(':');
+        let id = n_split.next().unwrap().parse::<i32>().unwrap();
+        let data = n_split.next().unwrap().parse::<i8>().unwrap();
+
+        chunk147::Block::new(id, Some(data))
+    } else {
+        chunk147::Block::new(n.parse().unwrap(), None)
     }
 }
 
@@ -171,26 +98,11 @@ fn read_conversion_file(
 
     for line in conversion_content.lines() {
         let mut split = line.split("->");
-        let o = split.nth(0).unwrap().trim();
-        let old_id = if o.contains(":") {
-            let mut n_split = o.split(":");
-            let id = n_split.nth(0).unwrap().parse::<i32>().unwrap();
-            let data = n_split.nth(0).unwrap().parse::<i8>().unwrap();
+        let o = split.next().unwrap().trim();
+        let n = split.next().unwrap().trim();
 
-            chunk147::Block::new(id, Some(data))
-        } else {
-            chunk147::Block::new(o.parse().unwrap(), None)
-        };
-        let n = split.nth(0).unwrap().trim();
-        let new_id = if n.contains(":") {
-            let mut n_split = n.split(":");
-            let id = n_split.nth(0).unwrap().parse::<i32>().unwrap();
-            let data = n_split.nth(0).unwrap().parse::<i8>().unwrap();
-
-            chunk147::Block::new(id, Some(data))
-        } else {
-            chunk147::Block::new(n.parse().unwrap(), None)
-        };
+        let old_id = read_id(o);
+        let new_id = read_id(n);
 
         conversion_map.write().unwrap().insert(old_id, new_id);
     }

@@ -288,17 +288,15 @@ impl Section {
                 if old.data.is_none() || old.data.unwrap() == data {
                     if old.id < 256 {
                         conversion.push((idx, new));
-                    } else {
-                        if let Some(added) = &self.add {
-                            let d = if idx % 2 == 0 {
-                                added[idx / 2] & 0x0F
-                            } else {
-                                (added[idx / 2] >> 4) & 0x0F
-                            };
-                            let id = (*block as i32) + (d as i32) << 8;
-                            if id == old.id {
-                                conversion.push((idx, new));
-                            }
+                    } else if let Some(added) = &self.add {
+                        let d = if idx % 2 == 0 {
+                            added[idx / 2] & 0x0F
+                        } else {
+                            (added[idx / 2] >> 4) & 0x0F
+                        };
+                        let id = (*block as i32) + ((d as i32) << 8);
+                        if id == old.id {
+                            conversion.push((idx, new));
                         }
                     }
                 }

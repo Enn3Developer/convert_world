@@ -10,7 +10,6 @@ fastnbt = "2.4.4"
 fastanvil = "0.31.0"
 serde = { version = "1.0.195", features = ["derive"] }
 bit_field = "0.10.2"
-flume = "0.11.0"
 threadpool = "1.8.1"
 rayon = "1.8.1"
 
