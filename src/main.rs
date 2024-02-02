@@ -215,7 +215,9 @@ fn replace_all_old() {
             }
         }
 
-        let pool = threadpool::Builder::new().build();
+        let pool = threadpool::Builder::new()
+            .num_threads(thread::available_parallelism().unwrap().get() * 2)
+            .build();
         let counter = Arc::new(AtomicUsize::new(0));
 
         for file in &files {
