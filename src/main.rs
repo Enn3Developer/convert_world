@@ -191,7 +191,7 @@ fn replace_all_old() {
         }
 
         let pool = threadpool::Builder::new()
-            .num_threads(thread::available_parallelism().unwrap().get() * 4)
+            .num_threads(thread::available_parallelism().unwrap().get() * 8)
             .build();
         let counter = Arc::new(AtomicUsize::new(0));
 
