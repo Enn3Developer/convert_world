@@ -51,67 +51,36 @@ fn replace_all_old_file(
             if let ChunkMessage::CHUNK(chunk_data) = message {
                 let chunk: Result<chunk147::Chunk> = fastnbt::from_bytes(&chunk_data);
                 if let Ok(mut chunk) = chunk {
-                    let mut modified = false;
-                    for tile_entity in chunk.level().tile_entities() {
-                        if !(tile_entity.id() == "Chest"
+                    chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
+                        tile_entity.id() == "Chest"
                             || tile_entity.id() == "Sign"
                             || tile_entity.id() == "Skull"
-                            || tile_entity.id() == "MobSpawner")
-                        {
-                            modified = true;
-                            break;
-                        }
-                    }
+                            || tile_entity.id() == "MobSpawner"
+                    });
 
-                    if modified {
-                        chunk.mut_level().mut_tile_entities().retain(|tile_entity| {
-                            tile_entity.id() == "Chest"
-                                || tile_entity.id() == "Sign"
-                                || tile_entity.id() == "Skull"
-                                || tile_entity.id() == "MobSpawner"
-                        });
-                    }
-
-                    if !modified {
-                        if let Ok(conversion_map) = conversion_map.read() {
-                            'modified: for section in chunk.level().sections() {
-                                for i in 0..section.blocks().len() {
-                                    let block = section.blocks()[i];
-                                    for old_block in conversion_map.keys() {
-                                        if old_block.to_i8() == block {
-                                            modified = true;
-                                            break 'modified;
-                                        }
-                                    }
-                                }
+                    if let Ok(conversion_map) = conversion_map.read() {
+                        for (old_block, new_block) in conversion_map.iter() {
+                            // chunk
+                            //     .mut_level()
+                            //     .mut_sections()
+                            //     .par_iter_mut()
+                            //     .for_each(|section| {
+                            //         section.replace_all(old_block, new_block);
+                            //     });
+                            for section in chunk.mut_level().mut_sections() {
+                                section.replace_all(old_block, new_block);
                             }
                         }
                     }
-                    if modified {
-                        if let Ok(conversion_map) = conversion_map.read() {
-                            for (old_block, new_block) in conversion_map.iter() {
-                                chunk.mut_level().mut_sections().par_iter_mut().for_each(
-                                    |section| {
-                                        section.replace_all(old_block, new_block);
-                                    },
-                                );
-                                // for section in chunk.mut_level().mut_sections() {
-                                //     section.replace_all(old_block, new_block);
-                                // }
-                            }
-                        }
 
-                        // chunk
-                        //     .mut_level()
-                        //     .mut_sections()
-                        //     .iter_mut()
-                        //     .for_each(|section| {
-                        //         section.replace_all_blocks(conversion_map.clone());
-                        //     });
-                        tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
-                    } else {
-                        tx_r.send(ChunkResult::EMPTY).unwrap();
-                    }
+                    // chunk
+                    //     .mut_level()
+                    //     .mut_sections()
+                    //     .iter_mut()
+                    //     .for_each(|section| {
+                    //         section.replace_all_blocks(conversion_map.clone());
+                    //     });
+                    tx_r.send(ChunkResult::CHUNK(chunk)).unwrap();
                 } else {
                     println!("Error reading chunk");
                 }
@@ -222,7 +191,7 @@ fn replace_all_old() {
         }
 
         let pool = threadpool::Builder::new()
-            .num_threads(thread::available_parallelism().unwrap().get() * 2)
+            .num_threads(thread::available_parallelism().unwrap().get() * 4)
             .build();
         let counter = Arc::new(AtomicUsize::new(0));
 
