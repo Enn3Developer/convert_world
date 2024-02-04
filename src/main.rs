@@ -112,7 +112,7 @@ fn read_conversion_file(
         } else if b.has_data() && !a.has_data() {
             cmp::Ordering::Greater
         } else {
-            if a.id() == b.id() {
+            if a.id() == b.id() && a.has_data() && b.has_data() {
                 a.data().unwrap().cmp(&b.data().unwrap())
             } else {
                 a.id().cmp(&b.id())
