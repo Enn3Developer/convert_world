@@ -298,7 +298,7 @@ impl Section {
                     0
                 };
                 if old.data.is_none() || old.data.unwrap() == data {
-                    if old.id < 256 {
+                    if old.add_to_i8() == 0 {
                         conversion.push((idx, new));
                     } else {
                         let d = if let Some(added) = &self.add {
