@@ -283,29 +283,26 @@ impl Section {
         !conversion.is_empty()
     }
 
+    fn get_data(idx: usize, arr: Option<&ByteArray>) -> i8 {
+        if let Some(data) = arr {
+            if idx % 2 == 0 {
+                data[idx / 2] & 0x0F
+            } else {
+                (data[idx / 2] >> 4) & 0x0F
+            }
+        } else {
+            0
+        }
+    }
+
     pub fn replace_all(&mut self, old: &Block, new: &Block) {
         let mut conversion = Vec::with_capacity(128);
 
         for (idx, block) in self.blocks.iter().enumerate() {
             if *block == old.to_i8() {
-                let data = if let Some(data_arr) = &self.data {
-                    if idx % 2 == 0 {
-                        data_arr[idx / 2] & 0x0F
-                    } else {
-                        (data_arr[idx / 2] >> 4) & 0x0F
-                    }
-                } else {
-                    0
-                };
-                let d = if let Some(added) = &self.add {
-                    if idx % 2 == 0 {
-                        added[idx / 2] & 0x0F
-                    } else {
-                        (added[idx / 2] >> 4) & 0x0F
-                    }
-                } else {
-                    0
-                };
+                let data = Self::get_data(idx, self.data.as_ref());
+                let d = Self::get_data(idx, self.add.as_ref());
+
                 if old.data.is_none() || old.data.unwrap() == data {
                     if old.id < 256 && d == 0 {
                         conversion.push((idx, new));
