@@ -160,7 +160,7 @@ async fn replace_all_old() {
         let start = Instant::now();
         while let Ok(Some(file)) = read_dir.next_entry().await {
             started += 1;
-            if started % 1000 == 0 {
+            if started % 100 == 0 {
                 handles_vec.push(mem::take(&mut handles));
             }
             println!("Starting worker n.{started}");
@@ -181,6 +181,7 @@ async fn replace_all_old() {
                 });
             }
         }
+        handles_vec.push(mem::take(&mut handles));
 
         let mut i = 0;
         let mut len = 0;
@@ -192,8 +193,7 @@ async fn replace_all_old() {
         while let Some(mut handles) = handles_vec.pop() {
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
-                let now = Instant::now();
-                let elapsed = (now - start).as_secs_f32();
+                let elapsed = (Instant::now() - start).as_secs_f32();
                 let mean_rps = if elapsed == 0.0 {
                     0.0
                 } else {
