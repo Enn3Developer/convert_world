@@ -84,6 +84,7 @@ async fn replace_all_old_file(
                 }
             }
         }
+        drop(mca);
 
         let region = Arc::into_inner(region).unwrap().into_inner();
         tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
