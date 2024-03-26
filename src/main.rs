@@ -1,12 +1,11 @@
 use convert_world::chunk147;
 use fastanvil::{Error, Region};
 use std::cmp;
-use std::fs::{File, OpenOptions};
-use std::io::Read;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinSet;
 use tokio_stream::StreamExt;
 
@@ -15,8 +14,8 @@ async fn replace_all_old_file(
     converted_path: PathBuf,
     conversion_map: Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>>,
 ) {
-    let file = File::open(path).unwrap();
-    let mut mca = Region::from_stream(file).unwrap();
+    let file = tokio::fs::read(path).await.unwrap();
+    let mut mca = Region::from_stream(Cursor::new(file)).unwrap();
     let mut are_chunks = false;
 
     if mca.iter().flatten().next().is_some() {
@@ -24,19 +23,9 @@ async fn replace_all_old_file(
     }
 
     if are_chunks {
-        let mut open_options = OpenOptions::new();
-        open_options
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .read(true);
-
-        let converted_file = tokio::task::spawn_blocking(move || open_options.open(converted_path))
-            .await
-            .unwrap()
-            .unwrap();
-        let converted_mca = Arc::new(tokio::sync::Mutex::new(
-            tokio::task::spawn_blocking(move || Region::new(converted_file))
+        let converted_data = vec![];
+        let region = Arc::new(Mutex::new(
+            tokio::task::spawn_blocking(move || Region::new(Cursor::new(converted_data)))
                 .await
                 .unwrap()
                 .unwrap(),
@@ -74,7 +63,7 @@ async fn replace_all_old_file(
 
                 let write: Result<(), Error>;
                 {
-                    let region = converted_mca.clone();
+                    let region = region.clone();
                     let mut region = region.lock().await;
                     write = tokio::task::block_in_place(move || {
                         region.write_chunk(
@@ -92,6 +81,11 @@ async fn replace_all_old_file(
                 }
             }
         }
+
+        let region = Arc::into_inner(region).unwrap().into_inner();
+        tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
+            .await
+            .unwrap();
     }
 }
 
@@ -111,11 +105,7 @@ async fn read_conversion_file(
     conversion_path: String,
 ) -> Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>> {
     let mut conversion_map = vec![];
-    let mut conversion_file = File::open(conversion_path).unwrap();
-    let mut conversion_content = String::new();
-    conversion_file
-        .read_to_string(&mut conversion_content)
-        .unwrap();
+    let conversion_content = tokio::fs::read_to_string(conversion_path).await.unwrap();
 
     for line in conversion_content.lines() {
         let mut split = line.split("->");
