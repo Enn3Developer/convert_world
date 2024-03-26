@@ -11,6 +11,7 @@ fastanvil = "0.31.0"
 serde = { version = "1.0.195", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 tokio-stream = "0.1.15"
+tikv-jemallocator = "0.5.4"
 
 [profile.release]
 lto = "fat"

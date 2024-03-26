@@ -5,9 +5,13 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use tikv_jemallocator::Jemalloc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinSet;
 use tokio_stream::StreamExt;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 async fn replace_all_old_file(
     path: PathBuf,
@@ -217,7 +221,6 @@ async fn run() {
 fn main() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .max_blocking_threads(16)
         .build()
         .unwrap()
         .block_on(run())
