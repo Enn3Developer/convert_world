@@ -208,7 +208,7 @@ async fn replace_all_old() {
     }
 }
 
-#[tokio::main(worker_threads = 8)]
+#[tokio::main]
 async fn main() {
     replace_all_old().await;
 }
