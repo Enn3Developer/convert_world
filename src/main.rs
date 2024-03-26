@@ -1,7 +1,9 @@
 use convert_world::chunk147;
-use fastanvil::{Error, Region};
+use fastanvil::{CompressionScheme, Error, Region};
+use flate2::bufread::ZlibEncoder;
+use flate2::Compression;
 use std::cmp;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -65,12 +67,16 @@ async fn replace_all_old_file(
                     section.replace_all(old_block, new_block).await;
                 }
 
-                let write = region.lock().await.write_chunk(
+                let mut buf = vec![];
+                let uncompressed_chunk =
+                    fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
+                let mut enc = ZlibEncoder::new(uncompressed_chunk.as_slice(), Compression::best());
+                enc.read_to_end(&mut buf).unwrap();
+                let write = region.lock().await.write_compressed_chunk(
                     (chunk.level().x_pos() as usize) % 32,
                     (chunk.level().z_pos() as usize) % 32,
-                    fastnbt::to_bytes(&chunk)
-                        .expect("can't convert chunk to bytes")
-                        .as_slice(),
+                    CompressionScheme::Zlib,
+                    &buf,
                 );
 
                 if let Err(Error::InvalidOffset(x, z)) = write {
@@ -153,7 +159,7 @@ async fn replace_all_old() {
         let out_dir = std::env::args().nth(4).unwrap();
         let conversion_map = read_conversion_file(conversion_path).await;
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
-        let mut handles = Tasker::new();
+        let handles = Tasker::new();
         println!("Starting all workers");
         let mut started = 0;
         let start = Instant::now();

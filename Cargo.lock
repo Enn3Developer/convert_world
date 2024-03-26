@@ -92,6 +92,7 @@ version = "0.1.0"
 dependencies = [
  "fastanvil",
  "fastnbt",
+ "flate2",
  "serde",
  "tikv-jemallocator",
  "tokio",
