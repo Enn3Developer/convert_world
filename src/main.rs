@@ -188,6 +188,8 @@ async fn replace_all_old() {
             len += handles.len();
         }
 
+        handles_vec.reverse();
+
         while let Some(mut handles) = handles_vec.pop() {
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
