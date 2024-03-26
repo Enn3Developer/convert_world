@@ -160,7 +160,7 @@ async fn replace_all_old() {
         let start = Instant::now();
         while let Ok(Some(file)) = read_dir.next_entry().await {
             started += 1;
-            if started % 5000 == 0 {
+            if started % 1000 == 0 {
                 handles_vec.push(mem::take(&mut handles));
             }
             println!("Starting worker n.{started}");
@@ -184,11 +184,10 @@ async fn replace_all_old() {
 
         let mut i = 0;
         let mut len = 0;
+        handles_vec.reverse();
         for handles in &handles_vec {
             len += handles.len();
         }
-
-        handles_vec.reverse();
 
         while let Some(mut handles) = handles_vec.pop() {
             while let Some(_handle) = handles.join_next().await {
