@@ -61,20 +61,13 @@ async fn replace_all_old_file(
                     section.replace_all(old_block, new_block).await;
                 }
 
-                let write: Result<(), Error>;
-                {
-                    let region = region.clone();
-                    let mut region = region.lock().await;
-                    write = tokio::task::block_in_place(move || {
-                        region.write_chunk(
-                            (chunk.level().x_pos() as usize) % 32,
-                            (chunk.level().z_pos() as usize) % 32,
-                            fastnbt::to_bytes(&chunk)
-                                .expect("can't convert chunk to bytes")
-                                .as_slice(),
-                        )
-                    });
-                }
+                let write = region.lock().await.write_chunk(
+                    (chunk.level().x_pos() as usize) % 32,
+                    (chunk.level().z_pos() as usize) % 32,
+                    fastnbt::to_bytes(&chunk)
+                        .expect("can't convert chunk to bytes")
+                        .as_slice(),
+                );
 
                 if let Err(Error::InvalidOffset(x, z)) = write {
                     println!("can't write chunk at x: {x}, z: {z}");
@@ -118,19 +111,24 @@ async fn read_conversion_file(
         conversion_map.push((old_id, new_id));
     }
 
-    conversion_map.sort_by(|(a, _), (b, _)| {
-        return if a.has_data() && !b.has_data() {
-            cmp::Ordering::Less
-        } else if b.has_data() && !a.has_data() {
-            cmp::Ordering::Greater
-        } else {
-            if a.id() == b.id() && a.has_data() && b.has_data() {
-                a.data().unwrap().cmp(&b.data().unwrap())
+    let conversion_map = tokio::task::spawn_blocking(move || {
+        conversion_map.sort_by(|(a, _), (b, _)| {
+            return if a.has_data() && !b.has_data() {
+                cmp::Ordering::Less
+            } else if b.has_data() && !a.has_data() {
+                cmp::Ordering::Greater
             } else {
-                a.id().cmp(&b.id())
-            }
-        };
-    });
+                if a.id() == b.id() && a.has_data() && b.has_data() {
+                    a.data().unwrap().cmp(&b.data().unwrap())
+                } else {
+                    a.id().cmp(&b.id())
+                }
+            };
+        });
+        conversion_map
+    })
+    .await
+    .unwrap();
 
     Arc::new(RwLock::new(conversion_map))
 }
