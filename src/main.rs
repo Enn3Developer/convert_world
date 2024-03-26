@@ -151,7 +151,10 @@ async fn replace_all_old() {
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
         let mut handles = JoinSet::new();
         println!("Starting all workers");
+        let mut started = 0;
         while let Ok(file) = read_dir.next_entry().await {
+            started += 1;
+            println!("Starting worker n.{started}");
             if let Some(file) = file {
                 let name = file.file_name().clone();
                 let name = name.to_string_lossy().to_string();
