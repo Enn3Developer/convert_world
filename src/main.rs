@@ -1,10 +1,10 @@
 use convert_world::chunk147;
 use fastanvil::{Error, Region};
-use std::cmp;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
+use std::{cmp, mem};
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinSet;
@@ -153,12 +153,16 @@ async fn replace_all_old() {
         let out_dir = std::env::args().nth(4).unwrap();
         let conversion_map = read_conversion_file(conversion_path).await;
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
+        let mut handles_vec = vec![];
         let mut handles = JoinSet::new();
         println!("Starting all workers");
         let mut started = 0;
         let start = Instant::now();
         while let Ok(Some(file)) = read_dir.next_entry().await {
             started += 1;
+            if started % 5000 == 0 {
+                handles_vec.push(mem::take(&mut handles));
+            }
             println!("Starting worker n.{started}");
             let name = file.file_name().clone();
             let name = name.to_string_lossy().to_string();
@@ -179,38 +183,44 @@ async fn replace_all_old() {
         }
 
         let mut i = 0;
-        let len = handles.len();
-        while let Some(_handle) = handles.join_next().await {
-            i += 1;
-            let now = Instant::now();
-            let elapsed = (now - start).as_secs_f32();
-            let mean_rps = if elapsed == 0.0 {
-                0.0
-            } else {
-                i as f32 / elapsed
-            };
-            let eta = if mean_rps == 0.0 {
-                0.0
-            } else {
-                (len - i) as f32 / mean_rps
-            };
-
-            print!("\x1B[2J\x1B[1;1H");
-            println!(
-                "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s",
-                (i as f32) * 100.0 / (len as f32),
-                mean_rps,
-                i,
-                len,
-                eta
-            );
-            println!("Made by Enn3DevPlayer");
-            println!("Sponsor: N Inc.");
-            println!("Special thanks to ChDon for the UI ideas");
+        let mut len = 0;
+        for handles in &handles_vec {
+            len += handles.len();
         }
 
-        println!("Done!");
-        println!("Took {} seconds", (Instant::now() - start).as_secs_f32());
+        while let Some(mut handles) = handles_vec.pop() {
+            while let Some(_handle) = handles.join_next().await {
+                i += 1;
+                let now = Instant::now();
+                let elapsed = (now - start).as_secs_f32();
+                let mean_rps = if elapsed == 0.0 {
+                    0.0
+                } else {
+                    i as f32 / elapsed
+                };
+                let eta = if mean_rps == 0.0 {
+                    0.0
+                } else {
+                    (len - i) as f32 / mean_rps
+                };
+
+                print!("\x1B[2J\x1B[1;1H");
+                println!(
+                    "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s",
+                    (i as f32) * 100.0 / (len as f32),
+                    mean_rps,
+                    i,
+                    len,
+                    eta
+                );
+                println!("Made by Enn3DevPlayer");
+                println!("Sponsor: N Inc.");
+                println!("Special thanks to ChDon for the UI ideas");
+            }
+
+            println!("Done!");
+            println!("Took {} seconds", (Instant::now() - start).as_secs_f32());
+        }
     }
 }
 
