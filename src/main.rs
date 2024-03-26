@@ -152,6 +152,7 @@ async fn replace_all_old() {
         let mut handles = JoinSet::new();
         println!("Starting all workers");
         let mut started = 0;
+        let start = Instant::now();
         while let Ok(Some(file)) = read_dir.next_entry().await {
             started += 1;
             println!("Starting worker n.{started}");
@@ -175,7 +176,6 @@ async fn replace_all_old() {
 
         let mut i = 0;
         let len = handles.len();
-        let start = Instant::now();
         while let Some(_handle) = handles.join_next().await {
             i += 1;
             let now = Instant::now();
@@ -210,7 +210,15 @@ async fn replace_all_old() {
     }
 }
 
-#[tokio::main]
-async fn main() {
+async fn run() {
     replace_all_old().await;
+}
+
+fn main() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(32)
+        .build()
+        .unwrap()
+        .block_on(run())
 }
