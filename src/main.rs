@@ -152,26 +152,24 @@ async fn replace_all_old() {
         let mut handles = JoinSet::new();
         println!("Starting all workers");
         let mut started = 0;
-        while let Ok(file) = read_dir.next_entry().await {
+        while let Ok(Some(file)) = read_dir.next_entry().await {
             started += 1;
             println!("Starting worker n.{started}");
-            if let Some(file) = file {
-                let name = file.file_name().clone();
-                let name = name.to_string_lossy().to_string();
-                let dir = dir.clone();
-                let out_dir = out_dir.clone();
-                let conversion_map = conversion_map.clone();
-                if name.ends_with(".mca") {
-                    handles.spawn(async {
-                        let mut path = PathBuf::new();
-                        path.push(dir);
-                        path.push(&name);
-                        let mut converted_path = PathBuf::new();
-                        converted_path.push(out_dir);
-                        converted_path.push(name);
-                        replace_all_old_file(path, converted_path, conversion_map).await;
-                    });
-                }
+            let name = file.file_name().clone();
+            let name = name.to_string_lossy().to_string();
+            let dir = dir.clone();
+            let out_dir = out_dir.clone();
+            let conversion_map = conversion_map.clone();
+            if name.ends_with(".mca") {
+                handles.spawn(async {
+                    let mut path = PathBuf::new();
+                    path.push(dir);
+                    path.push(&name);
+                    let mut converted_path = PathBuf::new();
+                    converted_path.push(out_dir);
+                    converted_path.push(name);
+                    replace_all_old_file(path, converted_path, conversion_map).await;
+                });
             }
         }
 
