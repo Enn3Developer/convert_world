@@ -85,6 +85,9 @@ impl Level {
     pub fn mut_tile_entities(&mut self) -> &mut Vec<TileEntity> {
         &mut self.tile_entities
     }
+    pub fn set_tile_entities(&mut self, tile_entities: Vec<TileEntity>) {
+        self.tile_entities = tile_entities;
+    }
     pub fn tile_entities(&self) -> &Vec<TileEntity> {
         &self.tile_entities
     }
@@ -238,7 +241,7 @@ impl Section {
         Block { id: block, data }
     }
 
-    pub fn replace_all_blocks(
+    pub async fn replace_all_blocks(
         &mut self,
         conversion_map: Arc<RwLock<HashMap<Block, Block>>>,
     ) -> bool {
@@ -277,7 +280,7 @@ impl Section {
         }
 
         for (idx, block) in &conversion {
-            self.replace_block(*idx, block);
+            self.replace_block(*idx, block).await;
         }
 
         !conversion.is_empty()
@@ -295,7 +298,7 @@ impl Section {
         }
     }
 
-    pub fn replace_all(&mut self, old: &Block, new: &Block) {
+    pub async fn replace_all(&mut self, old: &Block, new: &Block) {
         let mut conversion = Vec::with_capacity(128);
 
         for (idx, block) in self.blocks.iter().enumerate() {
@@ -318,11 +321,11 @@ impl Section {
         }
 
         for (idx, block) in conversion {
-            self.replace_block(idx, block);
+            self.replace_block(idx, block).await;
         }
     }
 
-    pub fn replace_block(&mut self, idx: usize, new_block: &Block) {
+    pub async fn replace_block(&mut self, idx: usize, new_block: &Block) {
         if let Some(new_data) = new_block.data {
             if let Some(data_arr) = &mut self.data {
                 let d = if idx % 2 == 0 {
