@@ -217,7 +217,7 @@ async fn run() {
 fn main() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .max_blocking_threads(32)
+        .max_blocking_threads(16)
         .build()
         .unwrap()
         .block_on(run())
