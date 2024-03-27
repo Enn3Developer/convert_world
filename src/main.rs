@@ -184,7 +184,7 @@ async fn replace_all_old() {
         }
 
         let start = Instant::now();
-        for _ in 0..(len as f32 / 5000.0).floor() as u32 {
+        for _ in 0..(len as f32 / 2500.0).floor() as u32 {
             let mut handles = JoinSet::new();
             let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
             while let Ok(Some(file)) = read_dir.next_entry().await {
@@ -208,7 +208,7 @@ async fn replace_all_old() {
                         replace_all_old_file(path, converted_path, conversion_map).await;
                     });
                 }
-                if started % 5000 == 0 {
+                if started % 2500 == 0 {
                     break;
                 }
             }
