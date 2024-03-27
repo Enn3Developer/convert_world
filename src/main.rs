@@ -29,7 +29,8 @@ async fn replace_all_old_file(
     }
 
     if are_chunks {
-        let converted_data = Vec::with_capacity(16384);
+        // allocates 8MB
+        let converted_data = Vec::with_capacity(2usize.pow(26));
         let region = Arc::new(Mutex::new(
             tokio::task::spawn_blocking(move || Region::new(Cursor::new(converted_data)))
                 .await
@@ -199,17 +200,15 @@ async fn replace_all_old() {
             pauses += (Instant::now() - start_pause).as_secs_f32();
 
             println!("Signaling all workers");
-            let local_start = Instant::now();
             broadcast.send(true).unwrap();
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
                 let now = Instant::now();
                 let elapsed = (now - start).as_secs_f32() - pauses;
-                let local_elapsed = (now - local_start).as_secs_f32();
-                let mean_rps = if local_elapsed == 0.0 {
+                let mean_rps = if elapsed == 0.0 {
                     0.0
                 } else {
-                    i as f32 / local_elapsed
+                    i as f32 / elapsed
                 };
                 let eta = if mean_rps == 0.0 {
                     0.0
