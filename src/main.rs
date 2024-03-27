@@ -1,7 +1,9 @@
+use async_stream::stream;
 use convert_world::chunk147;
 use fastanvil::{CompressionScheme, Error, Region};
 use flate2::bufread::ZlibEncoder;
 use flate2::Compression;
+use futures_util::pin_mut;
 use std::cmp;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
@@ -21,21 +23,16 @@ async fn replace_all_old_file(
 ) {
     let file = tokio::fs::read(path).await.unwrap();
     let mut mca = Region::from_stream(Cursor::new(file)).unwrap();
-    let mut are_chunks = false;
 
-    if mca.iter().flatten().next().is_some() {
-        are_chunks = true;
+    if mca.iter().flatten().next().is_none() {
+        return;
     }
 
-    if are_chunks {
-        // allocates 8MB
-        let converted_data = Vec::with_capacity(2usize.pow(26));
-        let mut region =
-            tokio::task::spawn_blocking(move || Region::new(Cursor::new(converted_data)))
-                .await
-                .unwrap()
-                .unwrap();
+    // allocates 16MB
+    let converted_data = Vec::with_capacity(2usize.pow(27));
+    let mut region = Region::new(Cursor::new(converted_data)).unwrap();
 
+    let stream = stream! {
         for chunk in mca.iter() {
             if let Ok(chunk) = chunk {
                 let chunk_data = chunk.data;
@@ -65,19 +62,25 @@ async fn replace_all_old_file(
                 .await
                 .unwrap();
 
-                let write = tokio::task::block_in_place(|| {
-                    region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &buf)
-                });
-                if let Err(Error::InvalidOffset(x, z)) = write {
-                    println!("can't write chunk at x: {x}, z: {z}");
-                }
+                yield (x, z, buf);
             }
         }
+    };
 
-        tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
-            .await
-            .unwrap();
+    pin_mut!(stream);
+
+    while let Some((x, z, data)) = stream.next().await {
+        let write = tokio::task::block_in_place(|| {
+            region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &data)
+        });
+        if let Err(Error::InvalidOffset(x, z)) = write {
+            println!("can't write chunk at x: {x}, z: {z}");
+        }
     }
+
+    tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
+        .await
+        .unwrap();
 }
 
 fn read_id(n: &str) -> chunk147::Block {
