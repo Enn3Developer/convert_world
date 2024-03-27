@@ -168,6 +168,11 @@ async fn replace_all_old() {
         let conversion_path = std::env::args().nth(2).unwrap();
         let dir = std::env::args().nth(3).unwrap();
         let out_dir = std::env::args().nth(4).unwrap();
+        let max_workers = std::env::args()
+            .nth(5)
+            .unwrap_or(String::from("8192"))
+            .parse::<u32>()
+            .unwrap();
         let conversion_map = read_conversion_file(conversion_path).await;
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
         println!("Starting all workers");
@@ -182,7 +187,6 @@ async fn replace_all_old() {
 
         let mut i = 0;
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
-        let max_workers = 20000;
         let mut pauses = 0.0;
         let start = Instant::now();
         for _ in 0..(len as f32 / max_workers as f32).ceil() as u32 {
