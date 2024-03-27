@@ -75,7 +75,7 @@ async fn replace_all_old_file(
                     let uncompressed_chunk =
                         fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
                     let mut enc =
-                        ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::best());
+                        ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
                     let buf = tokio::task::spawn_blocking(move || {
                         enc.read_to_end(&mut buf).unwrap();
                         buf
