@@ -1,11 +1,13 @@
+use async_compression::Level;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use fastanvil::Error;
-use flate2::read::ZlibEncoder;
-use flate2::Compression;
 use num_enum_derive::TryFromPrimitive;
-use std::io;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::future::Future;
+use std::io::{Cursor, SeekFrom};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio_stream::Stream;
 
 pub(crate) const SECTOR_SIZE: usize = 4096;
 pub(crate) const REGION_HEADER_SIZE: usize = 2 * SECTOR_SIZE;
@@ -177,8 +179,8 @@ where
         buf
     }
 
-    pub async fn iter(&mut self) -> RegionIter<'_, S> {
-        RegionIter::async_new(self).await
+    pub fn iter(&mut self) -> RegionIter<'_, S> {
+        RegionIter::new(self)
     }
 }
 
@@ -202,11 +204,27 @@ where
         z: usize,
         uncompressed_chunk: &[u8],
     ) -> fastanvil::Result<()> {
-        let mut buf = vec![];
-        let mut enc = ZlibEncoder::new(uncompressed_chunk, Compression::fast());
-        enc.read_to_end(&mut buf)?;
-        self.async_write_compressed_chunk(x, z, fastanvil::CompressionScheme::Zlib, &buf)
+        self.async_write_chunk_with_quality(x, z, uncompressed_chunk, Level::Fastest)
             .await
+    }
+
+    pub async fn async_write_chunk_with_quality(
+        &mut self,
+        x: usize,
+        z: usize,
+        uncompressed_chunk: &[u8],
+        quality: Level,
+    ) -> fastanvil::Result<()> {
+        let buf = Vec::with_capacity(uncompressed_chunk.len());
+        let mut enc = async_compression::tokio::write::ZlibEncoder::with_quality(buf, quality);
+        enc.write_all(uncompressed_chunk).await?;
+        self.async_write_compressed_chunk(
+            x,
+            z,
+            fastanvil::CompressionScheme::Zlib,
+            &enc.into_inner(),
+        )
+        .await
     }
 
     pub async fn async_write_compressed_chunk(
@@ -302,409 +320,73 @@ where
     }
 }
 
-impl<S> Region<S>
-where
-    S: Read + Seek,
-{
-    pub fn from_stream(stream: S) -> fastanvil::Result<Self> {
-        let mut tmp = Self {
-            stream,
-            offsets: vec![],
-        };
-
-        let mut max_offset = 0;
-        let mut max_offsets_sector_count = 0;
-
-        for z in 0..32 {
-            for x in 0..32 {
-                let Some(loc) = tmp.location(x, z)? else {
-                    continue;
-                };
-
-                tmp.offsets.push(loc.offset);
-                if loc.offset > max_offset {
-                    max_offset = loc.offset;
-                    max_offsets_sector_count = loc.sectors;
-                }
-            }
-        }
-
-        tmp.offsets.sort_unstable();
-
-        // we add an offset representing the end of sectors that are in use.
-        tmp.offsets.push(max_offset + max_offsets_sector_count);
-        Ok(tmp)
-    }
-
-    pub fn read_chunk(&mut self, x: usize, z: usize) -> fastanvil::Result<Option<Vec<u8>>> {
-        self.compression_scheme(x, z)?
-            .map(|scheme| match scheme {
-                fastanvil::CompressionScheme::Zlib => {
-                    let mut decoder = flate2::write::ZlibDecoder::new(vec![]);
-                    self.read_compressed_chunk(x, z, &mut decoder)?;
-                    Ok(decoder.finish()?)
-                }
-                fastanvil::CompressionScheme::Gzip => {
-                    let mut decoder = flate2::write::GzDecoder::new(vec![]);
-                    self.read_compressed_chunk(x, z, &mut decoder)?;
-                    Ok(decoder.finish()?)
-                }
-                fastanvil::CompressionScheme::Uncompressed => {
-                    let mut buf = vec![];
-                    self.read_compressed_chunk(x, z, &mut buf)?;
-                    Ok(buf)
-                }
-            })
-            .transpose()
-    }
-
-    pub(crate) fn location(
-        &mut self,
-        x: usize,
-        z: usize,
-    ) -> fastanvil::Result<Option<ChunkLocation>> {
-        if x >= 32 || z >= 32 {
-            return Err(Error::InvalidOffset(x as isize, z as isize));
-        }
-
-        self.stream.seek(SeekFrom::Start(header_pos(x, z)))?;
-
-        let mut buf = [0u8; 4];
-        self.stream.read_exact(&mut buf[..])?;
-
-        let mut offset = 0u64;
-        offset |= (buf[0] as u64) << 16;
-        offset |= (buf[1] as u64) << 8;
-        offset |= buf[2] as u64;
-        let sectors = buf[3] as u64;
-
-        Ok((offset != 0 || sectors != 0).then_some(ChunkLocation { offset, sectors }))
-    }
-
-    fn read_compressed_chunk(
-        &mut self,
-        x: usize,
-        z: usize,
-        writer: &mut dyn Write,
-    ) -> fastanvil::Result<bool> {
-        let Some(loc) = self.location(x, z)? else {
-            return Ok(false);
-        };
-
-        self.stream
-            .seek(SeekFrom::Start(loc.offset * SECTOR_SIZE as u64))?;
-
-        let mut buf = [0u8; 5];
-        self.stream.read_exact(&mut buf)?;
-        let metadata = ChunkMeta::new(&buf)?;
-
-        let mut adapted = (&mut self.stream).take(metadata.compressed_len as u64);
-
-        io::copy(&mut adapted, writer)?;
-
-        Ok(true)
-    }
-
-    pub fn into_inner(mut self) -> io::Result<S> {
-        self.offsets.pop().unwrap();
-        let Some(offset) = self.offsets.pop() else {
-            self.stream
-                .seek(SeekFrom::Start(REGION_HEADER_SIZE as u64))?;
-            return Ok(self.stream);
-        };
-        self.stream
-            .seek(SeekFrom::Start(offset * SECTOR_SIZE as u64))?;
-        let chunk_length = self.stream.read_u32::<BigEndian>()? + 4;
-        let logical_end = unstable_div_ceil(
-            offset as usize * SECTOR_SIZE + chunk_length as usize,
-            SECTOR_SIZE,
-        ) * SECTOR_SIZE;
-
-        self.stream.seek(SeekFrom::Start(logical_end as u64))?;
-        Ok(self.stream)
-    }
-
-    fn compression_scheme(
-        &mut self,
-        x: usize,
-        z: usize,
-    ) -> fastanvil::Result<Option<fastanvil::CompressionScheme>> {
-        if x >= 32 || z >= 32 {
-            return Err(Error::InvalidOffset(x as isize, z as isize));
-        }
-
-        let Some(loc) = self.location(x, z)? else {
-            return Ok(None);
-        };
-
-        self.stream
-            .seek(SeekFrom::Start(loc.offset * SECTOR_SIZE as u64))?;
-
-        let mut buf = [0u8; 5];
-        self.stream.read_exact(&mut buf)?;
-        let metadata = ChunkMeta::new(&buf)?;
-
-        Ok(Some(metadata.compression_scheme))
-    }
-
-    fn chunk_meta(
-        &self,
-        compressed_chunk_size: u32,
-        scheme: fastanvil::CompressionScheme,
-    ) -> [u8; 5] {
-        let mut buf = [0u8; 5];
-        let mut c = Cursor::new(buf.as_mut_slice());
-
-        WriteBytesExt::write_u32::<BigEndian>(&mut c, compressed_chunk_size + 1).unwrap();
-        WriteBytesExt::write_u8(
-            &mut c,
-            match scheme {
-                fastanvil::CompressionScheme::Gzip => 1,
-                fastanvil::CompressionScheme::Zlib => 2,
-                fastanvil::CompressionScheme::Uncompressed => 3,
-            },
-        )
-        .unwrap();
-
-        buf
-    }
-}
-
-impl<S> Region<S>
-where
-    S: Read + Write + Seek,
-{
-    pub fn new(mut stream: S) -> fastanvil::Result<Self> {
-        stream.rewind()?;
-        stream.write_all(&[0; REGION_HEADER_SIZE])?;
-
-        Ok(Self {
-            stream,
-            offsets: vec![2],
-        })
-    }
-
-    pub fn write_chunk(
-        &mut self,
-        x: usize,
-        z: usize,
-        uncompressed_chunk: &[u8],
-    ) -> fastanvil::Result<()> {
-        let mut buf = vec![];
-        let mut enc = ZlibEncoder::new(uncompressed_chunk, Compression::fast());
-        enc.read_to_end(&mut buf)?;
-        self.write_compressed_chunk(x, z, fastanvil::CompressionScheme::Zlib, &buf)
-    }
-
-    pub fn write_compressed_chunk(
-        &mut self,
-        x: usize,
-        z: usize,
-        scheme: fastanvil::CompressionScheme,
-        compressed_chunk: &[u8],
-    ) -> fastanvil::Result<()> {
-        let loc = self.location(x, z)?;
-        let required_sectors =
-            unstable_div_ceil(CHUNK_HEADER_SIZE + compressed_chunk.len(), SECTOR_SIZE);
-
-        if let Some(loc) = loc {
-            // chunk already exists in the region file, need to update it.
-            let i = self.offsets.binary_search(&loc.offset).unwrap();
-            let start_offset = self.offsets[i];
-            let end_offset = self.offsets[i + 1];
-            let available_sectors = (end_offset - start_offset) as usize;
-
-            if required_sectors <= available_sectors {
-                // we fit in the current gap in the file.
-                self.set_chunk(start_offset, scheme, compressed_chunk)?;
-                self.set_header(x, z, start_offset, required_sectors)?;
-            } else {
-                // we do not fit in the current gap, need to find a new home for
-                // this chunk.
-                self.offsets.remove(i); // this chunk will no longer be here.
-                let offset = *self.offsets.last().unwrap();
-
-                // add a new offset representing the new 'end' of the current region file.
-                self.offsets.push(offset + required_sectors as u64);
-                self.set_chunk(offset, scheme, compressed_chunk)?;
-                self.pad()?;
-                self.set_header(x, z, offset, required_sectors)?;
-            }
-        } else {
-            // chunk does not exist in the region yet.
-            let offset = *self.offsets.last().expect("offset should always exist");
-
-            // add a new offset representing the new 'end' of the current region file.
-            self.offsets.push(offset + required_sectors as u64);
-            self.set_chunk(offset, scheme, compressed_chunk)?;
-            self.pad()?;
-            self.set_header(x, z, offset, required_sectors)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn remove_chunk(&mut self, x: usize, z: usize) -> fastanvil::Result<()> {
-        let Some(loc) = self.location(x, z)? else {
-            return Ok(());
-        };
-
-        // zero the region header for the chunk
-        self.set_header(x, z, 0, 0)?;
-
-        // remove the offset of the chunk
-        let i = self.offsets.binary_search(&loc.offset).unwrap();
-        self.offsets.remove(i);
-
-        Ok(())
-    }
-
-    fn set_chunk(
-        &mut self,
-        offset: u64,
-        scheme: fastanvil::CompressionScheme,
-        chunk: &[u8],
-    ) -> fastanvil::Result<()> {
-        self.stream
-            .seek(SeekFrom::Start(offset * SECTOR_SIZE as u64))?;
-
-        self.stream.write_all(&self.chunk_meta(
-            chunk.len() as u32, // doesn't include header size
-            scheme,
-        ))?;
-
-        self.stream.write_all(chunk)?;
-        Ok(())
-    }
-
-    fn pad(&mut self) -> fastanvil::Result<()> {
-        let current_end = unstable_stream_len(&mut self.stream)? as usize;
-        let padded_end = unstable_div_ceil(current_end, SECTOR_SIZE) * SECTOR_SIZE;
-        let pad_len = padded_end - current_end;
-        self.stream.write_all(&vec![0; pad_len])?;
-        Ok(())
-    }
-
-    fn set_header(
-        &mut self,
-        x: usize,
-        z: usize,
-        offset: u64,
-        new_sector_count: usize,
-    ) -> fastanvil::Result<()> {
-        if new_sector_count > 255 {
-            return Err(Error::ChunkTooLarge);
-        }
-
-        let mut buf = [0u8; 4];
-        buf[0] = ((offset & 0xFF0000) >> 16) as u8;
-        buf[1] = ((offset & 0x00FF00) >> 8) as u8;
-        buf[2] = (offset & 0x0000FF) as u8;
-        buf[3] = new_sector_count as u8;
-
-        // seek to header
-        self.stream.seek(SeekFrom::Start(header_pos(x, z)))?;
-        self.stream.write_all(&buf)?;
-        Ok(())
-    }
-}
-
 pub struct RegionIter<'a, S> {
     inner: &'a mut Region<S>,
-    index: usize,
+    index: (usize, usize),
 }
 
 impl<'a, S> RegionIter<'a, S>
 where
     S: AsyncReadExt + AsyncSeekExt + Unpin,
 {
-    async fn async_new(inner: &'a mut Region<S>) -> Self {
-        Self { inner, index: 0 }
+    fn new(inner: &'a mut Region<S>) -> Self {
+        Self {
+            inner,
+            index: (0, 0),
+        }
     }
 
-    async fn async_next_xz(&mut self) -> Option<(usize, usize)> {
-        let index = self.index;
-        self.index += 1;
-
-        if index == 32 * 32 {
-            return None;
+    fn next_xz(&mut self) -> Option<(usize, usize)> {
+        let mut index = self.index;
+        index.1 += 1;
+        if index.1 >= 32 {
+            index.1 = 0;
+            index.0 += 1;
+            if index.0 >= 32 {
+                return None;
+            }
         }
 
-        let x = index % 32;
-        let z = index / 32;
-        Some((x, z))
+        Some(index)
     }
 }
 
-impl<'a, S> Iterator for RegionIter<'a, S>
+impl<'a, S> Stream for RegionIter<'a, S>
 where
     S: AsyncReadExt + AsyncSeekExt + Unpin,
 {
     type Item = fastanvil::Result<ChunkData>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let handle = tokio::runtime::Handle::current();
-        while let Some((x, z)) = handle.block_on(self.async_next_xz()) {
-            let c = handle.block_on(self.inner.async_read_chunk(x, z));
-
-            match c {
-                Ok(Some(c)) => return Some(Ok(ChunkData { x, z, data: c })),
-                Ok(None) => {}
-                Err(e) => return Some(Err(e)),
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let x = self.index.0;
+        let z = self.index.1;
+        let poll: Poll<fastanvil::Result<Option<Vec<u8>>>>;
+        {
+            let fut = self.inner.async_read_chunk(x, z);
+            tokio::pin!(fut);
+            poll = fut.poll(cx);
+        }
+        match poll {
+            Poll::Ready(data) => {
+                self.next_xz();
+                match data? {
+                    None => {}
+                    Some(data) => {
+                        return Poll::Ready(Some(Ok(ChunkData { x, z, data })));
+                    }
+                }
             }
+            Poll::Pending => return Poll::Pending,
         }
-
-        None
+        Poll::Ready(None)
     }
 }
 
-impl<'a, S> RegionIter<'a, S>
-where
-    S: Read + Seek,
-{
-    fn new(inner: &'a mut Region<S>) -> Self {
-        Self { inner, index: 0 }
-    }
-
-    fn next_xz(&mut self) -> Option<(usize, usize)> {
-        let index = self.index;
-        self.index += 1;
-
-        if index == 32 * 32 {
-            return None;
-        }
-
-        let x = index % 32;
-        let z = index / 32;
-        Some((x, z))
-    }
-}
 pub struct ChunkData {
     pub x: usize,
     pub z: usize,
     pub data: Vec<u8>,
 }
-
-// impl<'a, S> Iterator for RegionIter<'a, S>
-// where
-//     S: Read + Seek,
-// {
-//     type Item = fastanvil::Result<ChunkData>;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         while let Some((x, z)) = self.next_xz() {
-//             let c = self.inner.read_chunk(x, z);
-//
-//             match c {
-//                 Ok(Some(c)) => return Some(Ok(ChunkData { x, z, data: c })),
-//                 Ok(None) => {}
-//                 Err(e) => return Some(Err(e)),
-//             }
-//         }
-//
-//         None
-//     }
-// }
 
 #[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -732,16 +414,6 @@ where
     let len = seek.seek(SeekFrom::End(0)).await?;
     if old_pos != len {
         seek.seek(SeekFrom::Start(old_pos)).await?;
-    }
-
-    Ok(len)
-}
-
-fn unstable_stream_len(seek: &mut impl Seek) -> fastanvil::Result<u64> {
-    let old_pos = seek.stream_position()?;
-    let len = seek.seek(SeekFrom::End(0))?;
-    if old_pos != len {
-        seek.seek(SeekFrom::Start(old_pos))?;
     }
 
     Ok(len)

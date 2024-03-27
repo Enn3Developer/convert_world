@@ -1,16 +1,15 @@
+use async_compression::Level;
 use convert_world::chunk147;
 use convert_world::region::Region;
-use fastanvil::{CompressionScheme, Error};
-use flate2::bufread::ZlibEncoder;
-use flate2::Compression;
+use fastanvil::Error;
 use std::cmp;
-use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
 use tokio::fs::{File, OpenOptions};
 use tokio::task::JoinSet;
+use tokio_stream::StreamExt;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -19,18 +18,19 @@ async fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
     conversion_map: Arc<Vec<(chunk147::Block, chunk147::Block)>>,
-    compression: Compression,
+    compression: Level,
 ) {
     let file = File::open(path).await.unwrap();
     let mut mca = Region::from_async_stream(file).await.unwrap();
 
-    if mca.iter().await.flatten().next().is_none() {
+    if mca.iter().next().await.is_none() {
         return;
     }
 
     let mut handles = JoinSet::new();
+    let mut mca_stream = mca.iter();
 
-    for chunk in mca.iter().await {
+    while let Some(chunk) = mca_stream.next().await {
         if let Ok(chunk) = chunk {
             let conversion_map = conversion_map.clone();
             handles.spawn(async move {
@@ -42,20 +42,7 @@ async fn replace_all_old_file(
                     }
                 }
 
-                let x = (chunk.level().x_pos() as usize) % 32;
-                let z = (chunk.level().z_pos() as usize) % 32;
-                let uncompressed_chunk =
-                    fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
-                let mut buf = Vec::with_capacity(uncompressed_chunk.capacity());
-                let mut enc = ZlibEncoder::new(Cursor::new(uncompressed_chunk), compression);
-                let buf = tokio::task::spawn_blocking(move || {
-                    enc.read_to_end(&mut buf).unwrap();
-                    buf
-                })
-                .await
-                .unwrap();
-
-                (x, z, buf)
+                chunk
             });
         }
     }
@@ -69,18 +56,21 @@ async fn replace_all_old_file(
         .await
         .unwrap();
     let mut region = Region::async_new(converted_file).await.unwrap();
-    while let Some(Ok((x, z, data))) = handles.join_next().await {
-        let write = region
-            .async_write_compressed_chunk(x, z, CompressionScheme::Zlib, &data)
-            .await;
-        if let Err(Error::InvalidOffset(x, z)) = write {
+    while let Some(Ok(chunk)) = handles.join_next().await {
+        let x = (chunk.level().x_pos() as usize) % 32;
+        let z = (chunk.level().z_pos() as usize) % 32;
+        if let Err(Error::InvalidOffset(x, z)) = region
+            .async_write_chunk_with_quality(
+                x,
+                z,
+                &fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes"),
+                compression,
+            )
+            .await
+        {
             println!("can't write chunk at x: {x}, z: {z}");
         }
     }
-    // let region = region.into_inner();
-    // tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
-    //     .await
-    //     .unwrap();
 }
 
 fn read_id(n: &str) -> chunk147::Block {
@@ -114,17 +104,15 @@ async fn read_conversion_file(
 
     let conversion_map = tokio::task::spawn_blocking(move || {
         conversion_map.sort_by(|(a, _), (b, _)| {
-            return if a.has_data() && !b.has_data() {
+            if a.has_data() && !b.has_data() {
                 cmp::Ordering::Less
             } else if b.has_data() && !a.has_data() {
                 cmp::Ordering::Greater
+            } else if a.id() == b.id() && a.has_data() && b.has_data() {
+                a.data().unwrap().cmp(&b.data().unwrap())
             } else {
-                if a.id() == b.id() && a.has_data() && b.has_data() {
-                    a.data().unwrap().cmp(&b.data().unwrap())
-                } else {
-                    a.id().cmp(&b.id())
-                }
-            };
+                a.id().cmp(&b.id())
+            }
         });
         conversion_map
     })
@@ -142,11 +130,11 @@ async fn replace_all_old() {
         let converted_path = std::env::args().nth(4).unwrap();
         let compression = std::env::args().nth(5).unwrap_or(String::from("fast"));
         let compression = if &compression == "fast" {
-            Compression::fast()
+            Level::Fastest
         } else if &compression == "best" {
-            Compression::best()
+            Level::Best
         } else {
-            Compression::default()
+            Level::Default
         };
         let conversion_map = read_conversion_file(conversion_path).await;
         replace_all_old_file(
@@ -162,11 +150,11 @@ async fn replace_all_old() {
         let out_dir = std::env::args().nth(4).unwrap();
         let compression = std::env::args().nth(5).unwrap_or(String::from("fast"));
         let compression = if &compression == "fast" {
-            Compression::fast()
+            Level::Fastest
         } else if &compression == "best" {
-            Compression::best()
+            Level::Best
         } else {
-            Compression::default()
+            Level::Default
         };
         let max_workers = std::env::args()
             .nth(6)

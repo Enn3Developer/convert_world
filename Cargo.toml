@@ -12,7 +12,6 @@ serde = { version = "1.0.195", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros", "fs", "io-util"] }
 tokio-stream = "0.1.15"
 tikv-jemallocator = "0.5.4"
-flate2 = { version = "1.0.28", default-features = false, features = ["zlib-ng"] }
 async-stream = "0.3.5"
 futures-util = "0.3.30"
 byteorder = "1.5.0"
