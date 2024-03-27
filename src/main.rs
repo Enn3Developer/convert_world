@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio_stream::StreamExt;
 
@@ -18,7 +18,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 async fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
-    conversion_map: Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>>,
+    conversion_map: Arc<Vec<(chunk147::Block, chunk147::Block)>>,
 ) {
     let file = tokio::fs::read(path).await.unwrap();
     let mut mca = Region::from_stream(Cursor::new(file)).unwrap();
@@ -40,7 +40,7 @@ async fn replace_all_old_file(
         let mut handles = JoinSet::new();
         for chunk in mca.iter() {
             if let Ok(chunk) = chunk {
-                let conversion_map = conversion_map.read().await.clone();
+                let conversion_map = conversion_map.clone();
                 let region = region.clone();
                 handles.spawn(async move {
                     let chunk_data = chunk.data;
@@ -122,7 +122,7 @@ fn read_id(n: &str) -> chunk147::Block {
 
 async fn read_conversion_file(
     conversion_path: String,
-) -> Arc<RwLock<Vec<(chunk147::Block, chunk147::Block)>>> {
+) -> Arc<Vec<(chunk147::Block, chunk147::Block)>> {
     let mut conversion_map = vec![];
     let conversion_content = tokio::fs::read_to_string(conversion_path).await.unwrap();
 
@@ -156,7 +156,7 @@ async fn read_conversion_file(
     .await
     .unwrap();
 
-    Arc::new(RwLock::new(conversion_map))
+    Arc::new(conversion_map)
 }
 
 async fn replace_all_old() {
