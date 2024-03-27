@@ -1,9 +1,7 @@
-use async_stream::stream;
 use convert_world::chunk147;
 use fastanvil::{CompressionScheme, Error, Region};
 use flate2::bufread::ZlibEncoder;
 use flate2::Compression;
-use futures_util::pin_mut;
 use std::cmp;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
@@ -11,7 +9,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
 use tokio::task::JoinSet;
-use tokio_stream::StreamExt;
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -31,21 +28,18 @@ async fn replace_all_old_file(
     // allocates 16MB
     let converted_data = Vec::with_capacity(2usize.pow(27));
     let mut region = Region::new(Cursor::new(converted_data)).unwrap();
+    let mut handles = JoinSet::new();
 
-    let stream = stream! {
-        for chunk in mca.iter() {
-            if let Ok(chunk) = chunk {
-                let chunk_data = chunk.data;
-                let mut chunk = tokio::task::block_in_place(move || {
-                    fastnbt::from_bytes::<chunk147::Chunk>(&chunk_data)
-                })
-                .unwrap();
+    for chunk in mca.iter() {
+        if let Ok(chunk) = chunk {
+            let conversion_map = conversion_map.clone();
+            handles.spawn(async move {
+                let mut chunk = fastnbt::from_bytes::<chunk147::Chunk>(&chunk.data).unwrap();
 
-                let mut stream =
-                    tokio_stream::iter(conversion_map.iter().zip(chunk.mut_level().mut_sections()));
-
-                while let Some(((old_block, new_block), section)) = stream.next().await {
-                    section.replace_all(old_block, new_block).await;
+                for (old, new) in conversion_map.iter() {
+                    for section in chunk.mut_level().mut_sections() {
+                        section.replace_all(old, new).await;
+                    }
                 }
 
                 let x = (chunk.level().x_pos() as usize) % 32;
@@ -62,14 +56,12 @@ async fn replace_all_old_file(
                 .await
                 .unwrap();
 
-                yield (x, z, buf);
-            }
+                (x, z, buf)
+            });
         }
-    };
+    }
 
-    pin_mut!(stream);
-
-    while let Some((x, z, data)) = stream.next().await {
+    while let Some(Ok((x, z, data))) = handles.join_next().await {
         let write = tokio::task::block_in_place(|| {
             region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &data)
         });
