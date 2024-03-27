@@ -72,8 +72,11 @@ async fn replace_all_old_file(
                     }
 
                     let mut buf = vec![];
+                    let x = (chunk.level().x_pos() as usize) % 32;
+                    let z = (chunk.level().z_pos() as usize) % 32;
                     let uncompressed_chunk =
                         fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
+                    drop(chunk);
                     let mut enc =
                         ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
                     let buf = tokio::task::spawn_blocking(move || {
@@ -83,8 +86,8 @@ async fn replace_all_old_file(
                     .await
                     .unwrap();
                     let write = region.lock().await.write_compressed_chunk(
-                        (chunk.level().x_pos() as usize) % 32,
-                        (chunk.level().z_pos() as usize) % 32,
+                        x,
+                        z,
                         CompressionScheme::Zlib,
                         &buf,
                     );
