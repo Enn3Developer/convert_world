@@ -183,7 +183,7 @@ async fn replace_all_old() {
         let mut i = 0;
         let start = Instant::now();
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
-        let max_workers = 5000;
+        let max_workers = 20000;
         for _ in 0..(len as f32 / max_workers as f32).ceil() as u32 {
             let mut handles = JoinSet::new();
             while let Ok(Some(file)) = read_dir.next_entry().await {
