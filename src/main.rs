@@ -165,9 +165,7 @@ async fn replace_all_old() {
         let conversion_path = std::env::args().nth(2).unwrap();
         let path = std::env::args().nth(3).unwrap();
         let converted_path = std::env::args().nth(4).unwrap();
-
         let conversion_map = read_conversion_file(conversion_path).await;
-
         replace_all_old_file(path.into(), converted_path.into(), conversion_map).await;
     } else {
         let conversion_path = std::env::args().nth(2).unwrap();
@@ -175,62 +173,73 @@ async fn replace_all_old() {
         let out_dir = std::env::args().nth(4).unwrap();
         let conversion_map = read_conversion_file(conversion_path).await;
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
-        let mut handles = JoinSet::new();
         println!("Starting all workers");
         let mut started = 0;
-        let start = Instant::now();
-        while let Ok(Some(file)) = read_dir.next_entry().await {
-            started += 1;
-            println!("Starting worker n.{started}");
-            let name = file.file_name().clone();
-            let name = name.to_string_lossy().to_string();
-            let dir = dir.clone();
-            let out_dir = out_dir.clone();
-            let conversion_map = conversion_map.clone();
-            if name.ends_with(".mca") {
-                handles.spawn(async {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let mut path = PathBuf::new();
-                    path.push(dir);
-                    path.push(&name);
-                    let mut converted_path = PathBuf::new();
-                    converted_path.push(out_dir);
-                    converted_path.push(name);
-                    replace_all_old_file(path, converted_path, conversion_map).await;
-                });
+        let mut len = 0;
+        {
+            let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
+            while let Ok(Some(_)) = read_dir.next_entry().await {
+                len += 1;
             }
         }
 
-        let mut i = 0;
-        let len = started;
+        let start = Instant::now();
+        for _ in 0..(len as f32 / 10000.0).floor() as u32 {
+            let mut handles = JoinSet::new();
+            while let Ok(Some(file)) = read_dir.next_entry().await {
+                started += 1;
+                println!("Starting worker n.{started}");
+                let name = file.file_name().clone();
+                let name = name.to_string_lossy().to_string();
+                let dir = dir.clone();
+                let out_dir = out_dir.clone();
+                let conversion_map = conversion_map.clone();
+                if name.ends_with(".mca") {
+                    handles.spawn(async {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        let mut path = PathBuf::new();
+                        path.push(dir);
+                        path.push(&name);
+                        let mut converted_path = PathBuf::new();
+                        converted_path.push(out_dir);
+                        converted_path.push(name);
+                        replace_all_old_file(path, converted_path, conversion_map).await;
+                    });
+                }
+                if started % 10000 == 0 {
+                    break;
+                }
+            }
 
-        while let Some(_handle) = handles.join_next().await {
-            i += 1;
-            let elapsed = (Instant::now() - start).as_secs_f32();
-            let mean_rps = if elapsed == 0.0 {
-                0.0
-            } else {
-                i as f32 / elapsed
-            };
-            let eta = if mean_rps == 0.0 {
-                0.0
-            } else {
-                (len - i) as f32 / mean_rps
-            };
+            let mut i = 0;
+            while let Some(_handle) = handles.join_next().await {
+                i += 1;
+                let elapsed = (Instant::now() - start).as_secs_f32();
+                let mean_rps = if elapsed == 0.0 {
+                    0.0
+                } else {
+                    i as f32 / elapsed
+                };
+                let eta = if mean_rps == 0.0 {
+                    0.0
+                } else {
+                    (len - i) as f32 / mean_rps
+                };
 
-            print!("\x1B[2J\x1B[1;1H");
-            println!(
-                "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s",
-                (i as f32) * 100.0 / (len as f32),
-                mean_rps,
-                i,
-                len,
-                eta,
-                elapsed
-            );
-            println!("Made by Enn3DevPlayer");
-            println!("Sponsor: N Inc.");
-            println!("Special thanks to ChDon for the UI ideas");
+                print!("\x1B[2J\x1B[1;1H");
+                println!(
+                    "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s",
+                    (i as f32) * 100.0 / (len as f32),
+                    mean_rps,
+                    i,
+                    len,
+                    eta,
+                    elapsed
+                );
+                println!("Made by Enn3DevPlayer");
+                println!("Sponsor: N Inc.");
+                println!("Special thanks to ChDon for the UI ideas");
+            }
         }
 
         println!("Done!");
