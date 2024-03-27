@@ -6,7 +6,7 @@ use std::cmp;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
@@ -189,6 +189,7 @@ async fn replace_all_old() {
             let conversion_map = conversion_map.clone();
             if name.ends_with(".mca") {
                 handles.spawn(async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                     let mut path = PathBuf::new();
                     path.push(dir);
                     path.push(&name);
