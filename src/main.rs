@@ -228,8 +228,9 @@ async fn replace_all_old() {
                     (len - i) as f32 / mean_rps
                 };
 
-                print!("\x1B[2J\x1B[1;1H");
-                println!(
+                tokio::task::spawn_blocking(move || {
+                    print!("\x1B[2J\x1B[1;1H");
+                    println!(
                     "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s; started workers: {started}",
                     (i as f32) * 100.0 / (len as f32),
                     mean_rps,
@@ -238,9 +239,10 @@ async fn replace_all_old() {
                     eta,
                     elapsed
                 );
-                println!("Made by Enn3DevPlayer");
-                println!("Sponsor: N Inc.");
-                println!("Special thanks to ChDon for the UI ideas");
+                    println!("Made by Enn3DevPlayer");
+                    println!("Sponsor: N Inc.");
+                    println!("Special thanks to ChDon for the UI ideas");
+                }).await.unwrap();
             }
         }
 
