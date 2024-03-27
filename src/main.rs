@@ -181,10 +181,12 @@ async fn replace_all_old() {
         }
 
         let mut i = 0;
-        let start = Instant::now();
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
         let max_workers = 20000;
+        let mut pauses = 0.0;
+        let start = Instant::now();
         for _ in 0..(len as f32 / max_workers as f32).ceil() as u32 {
+            let start_pause = Instant::now();
             let mut handles = JoinSet::new();
             while let Ok(Some(file)) = read_dir.next_entry().await {
                 let name = file.file_name().clone();
@@ -210,11 +212,13 @@ async fn replace_all_old() {
                     }
                 }
             }
+            pauses += (Instant::now() - start_pause).as_secs_f32();
 
+            println!("Signaling all workers");
             broadcast.send(true).unwrap();
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
-                let elapsed = (Instant::now() - start).as_secs_f32();
+                let elapsed = (Instant::now() - start).as_secs_f32() - pauses;
                 let mean_rps = if elapsed == 0.0 {
                     0.0
                 } else {
@@ -245,7 +249,10 @@ async fn replace_all_old() {
         }
 
         println!("Done!");
-        println!("Took {} seconds", (Instant::now() - start).as_secs_f32());
+        println!(
+            "Took {} seconds",
+            (Instant::now() - start).as_secs_f32() - pauses
+        );
     }
 }
 
