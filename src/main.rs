@@ -183,6 +183,7 @@ async fn replace_all_old() {
             }
         }
 
+        let mut i = 0;
         let start = Instant::now();
         for _ in 0..(len as f32 / 1000.0).floor() as u32 {
             let mut handles = JoinSet::new();
@@ -195,7 +196,6 @@ async fn replace_all_old() {
                 let conversion_map = conversion_map.clone();
                 if name.ends_with(".mca") {
                     started += 1;
-                    println!("Starting worker n.{started}");
                     let mut rx = broadcast.subscribe();
                     handles.spawn(async move {
                         let _ = rx.recv().await.unwrap();
@@ -214,8 +214,6 @@ async fn replace_all_old() {
             }
 
             broadcast.send(true).unwrap();
-
-            let mut i = 0;
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
                 let elapsed = (Instant::now() - start).as_secs_f32();
@@ -232,7 +230,7 @@ async fn replace_all_old() {
 
                 print!("\x1B[2J\x1B[1;1H");
                 println!(
-                    "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s",
+                    "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s; started workers: {started}",
                     (i as f32) * 100.0 / (len as f32),
                     mean_rps,
                     i,
