@@ -1,5 +1,6 @@
 use convert_world::chunk147;
-use fastanvil::{CompressionScheme, Error, Region};
+use convert_world::region::Region;
+use fastanvil::{CompressionScheme, Error};
 use flate2::bufread::ZlibEncoder;
 use flate2::Compression;
 use std::cmp;
@@ -8,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
+use tokio::fs::{File, OpenOptions};
 use tokio::task::JoinSet;
 
 #[global_allocator]
@@ -19,19 +21,16 @@ async fn replace_all_old_file(
     conversion_map: Arc<Vec<(chunk147::Block, chunk147::Block)>>,
     compression: Compression,
 ) {
-    let file = tokio::fs::read(path).await.unwrap();
-    let mut mca = Region::from_stream(Cursor::new(file)).unwrap();
+    let file = File::open(path).await.unwrap();
+    let mut mca = Region::from_async_stream(file).await.unwrap();
 
-    if mca.iter().flatten().next().is_none() {
+    if mca.iter().await.flatten().next().is_none() {
         return;
     }
 
-    // allocates 32MB
-    let converted_data = Vec::with_capacity(2usize.pow(28));
-    let mut region = Region::new(Cursor::new(converted_data)).unwrap();
     let mut handles = JoinSet::new();
 
-    for chunk in mca.iter() {
+    for chunk in mca.iter().await {
         if let Ok(chunk) = chunk {
             let conversion_map = conversion_map.clone();
             handles.spawn(async move {
@@ -61,18 +60,27 @@ async fn replace_all_old_file(
         }
     }
 
+    let converted_file = OpenOptions::new()
+        .write(true)
+        .read(true)
+        .create(true)
+        .truncate(true)
+        .open(converted_path)
+        .await
+        .unwrap();
+    let mut region = Region::async_new(converted_file).await.unwrap();
     while let Some(Ok((x, z, data))) = handles.join_next().await {
-        let write = tokio::task::block_in_place(|| {
-            region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &data)
-        });
+        let write = region
+            .async_write_compressed_chunk(x, z, CompressionScheme::Zlib, &data)
+            .await;
         if let Err(Error::InvalidOffset(x, z)) = write {
             println!("can't write chunk at x: {x}, z: {z}");
         }
     }
-
-    tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
-        .await
-        .unwrap();
+    // let region = region.into_inner();
+    // tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
+    //     .await
+    //     .unwrap();
 }
 
 fn read_id(n: &str) -> chunk147::Block {

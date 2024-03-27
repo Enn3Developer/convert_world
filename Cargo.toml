@@ -9,12 +9,16 @@ edition = "2021"
 fastnbt = "2.4.4"
 fastanvil = "0.31.0"
 serde = { version = "1.0.195", features = ["derive"] }
-tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros", "fs"] }
+tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros", "fs", "io-util"] }
 tokio-stream = "0.1.15"
 tikv-jemallocator = "0.5.4"
 flate2 = { version = "1.0.28", default-features = false, features = ["zlib-ng"] }
 async-stream = "0.3.5"
 futures-util = "0.3.30"
+byteorder = "1.5.0"
+num_enum = "0.7.2"
+num_enum_derive = "0.7.2"
+async-compression = { version = "0.4.6", features = ["zlib", "gzip", "tokio"] }
 
 [profile.release]
 lto = "fat"
