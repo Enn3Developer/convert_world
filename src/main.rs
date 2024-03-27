@@ -17,6 +17,7 @@ async fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
     conversion_map: Arc<Vec<(chunk147::Block, chunk147::Block)>>,
+    compression: Compression,
 ) {
     let file = tokio::fs::read(path).await.unwrap();
     let mut mca = Region::from_stream(Cursor::new(file)).unwrap();
@@ -47,8 +48,7 @@ async fn replace_all_old_file(
                 let uncompressed_chunk =
                     fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
                 let mut buf = Vec::with_capacity(uncompressed_chunk.capacity());
-                let mut enc =
-                    ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
+                let mut enc = ZlibEncoder::new(Cursor::new(uncompressed_chunk), compression);
                 let buf = tokio::task::spawn_blocking(move || {
                     enc.read_to_end(&mut buf).unwrap();
                     buf
@@ -132,14 +132,36 @@ async fn replace_all_old() {
         let conversion_path = std::env::args().nth(2).unwrap();
         let path = std::env::args().nth(3).unwrap();
         let converted_path = std::env::args().nth(4).unwrap();
+        let compression = std::env::args().nth(5).unwrap_or(String::from("fast"));
+        let compression = if &compression == "fast" {
+            Compression::fast()
+        } else if &compression == "best" {
+            Compression::best()
+        } else {
+            Compression::default()
+        };
         let conversion_map = read_conversion_file(conversion_path).await;
-        replace_all_old_file(path.into(), converted_path.into(), conversion_map).await;
+        replace_all_old_file(
+            path.into(),
+            converted_path.into(),
+            conversion_map,
+            compression,
+        )
+        .await;
     } else {
         let conversion_path = std::env::args().nth(2).unwrap();
         let dir = std::env::args().nth(3).unwrap();
         let out_dir = std::env::args().nth(4).unwrap();
+        let compression = std::env::args().nth(5).unwrap_or(String::from("fast"));
+        let compression = if &compression == "fast" {
+            Compression::fast()
+        } else if &compression == "best" {
+            Compression::best()
+        } else {
+            Compression::default()
+        };
         let max_workers = std::env::args()
-            .nth(5)
+            .nth(6)
             .unwrap_or(String::from("8192"))
             .parse::<u32>()
             .unwrap();
@@ -179,7 +201,8 @@ async fn replace_all_old() {
                         let mut converted_path = PathBuf::new();
                         converted_path.push(out_dir);
                         converted_path.push(name);
-                        replace_all_old_file(path, converted_path, conversion_map).await;
+                        replace_all_old_file(path, converted_path, conversion_map, compression)
+                            .await;
                     });
                     if started % max_workers == 0 {
                         break;
