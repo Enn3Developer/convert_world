@@ -42,55 +42,52 @@ async fn replace_all_old_file(
             if let Ok(chunk) = chunk {
                 let conversion_map = conversion_map.clone();
                 let region = region.clone();
+
+                let chunk_data = chunk.data;
+                let mut chunk = tokio::task::spawn_blocking(move || {
+                    fastnbt::from_bytes::<chunk147::Chunk>(&chunk_data)
+                })
+                .await
+                .unwrap()
+                .unwrap();
+                let tile_entities =
+                    tokio_stream::iter(chunk.level().tile_entities().clone().into_iter())
+                        .filter(|tile_entity| {
+                            tile_entity.id() == "Chest"
+                                || tile_entity.id() == "Sign"
+                                || tile_entity.id() == "Skull"
+                                || tile_entity.id() == "MobSpawner"
+                        })
+                        .map(|tile_entity| tile_entity.clone())
+                        .collect::<Vec<_>>()
+                        .await;
+                chunk.mut_level().set_tile_entities(tile_entities);
+
+                let mut stream =
+                    tokio_stream::iter(conversion_map.iter().zip(chunk.mut_level().mut_sections()));
+
+                while let Some(((old_block, new_block), section)) = stream.next().await {
+                    section.replace_all(old_block, new_block).await;
+                }
+
+                let mut buf = vec![];
+                let x = (chunk.level().x_pos() as usize) % 32;
+                let z = (chunk.level().z_pos() as usize) % 32;
+                let uncompressed_chunk =
+                    fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
+                let mut enc =
+                    ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
+                let buf = tokio::task::spawn_blocking(move || {
+                    enc.read_to_end(&mut buf).unwrap();
+                    buf
+                })
+                .await
+                .unwrap();
                 handles.spawn(async move {
-                    let chunk_data = chunk.data;
-                    let mut chunk = tokio::task::spawn_blocking(move || {
-                        fastnbt::from_bytes::<chunk147::Chunk>(&chunk_data)
-                    })
-                    .await
-                    .unwrap()
-                    .unwrap();
-                    let tile_entities =
-                        tokio_stream::iter(chunk.level().tile_entities().clone().into_iter())
-                            .filter(|tile_entity| {
-                                tile_entity.id() == "Chest"
-                                    || tile_entity.id() == "Sign"
-                                    || tile_entity.id() == "Skull"
-                                    || tile_entity.id() == "MobSpawner"
-                            })
-                            .map(|tile_entity| tile_entity.clone())
-                            .collect::<Vec<_>>()
-                            .await;
-                    chunk.mut_level().set_tile_entities(tile_entities);
-
-                    let mut stream = tokio_stream::iter(
-                        conversion_map.iter().zip(chunk.mut_level().mut_sections()),
-                    );
-
-                    while let Some(((old_block, new_block), section)) = stream.next().await {
-                        section.replace_all(old_block, new_block).await;
-                    }
-
-                    let mut buf = vec![];
-                    let x = (chunk.level().x_pos() as usize) % 32;
-                    let z = (chunk.level().z_pos() as usize) % 32;
-                    let uncompressed_chunk =
-                        fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
-                    let mut enc =
-                        ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
-                    let buf = tokio::task::spawn_blocking(move || {
-                        enc.read_to_end(&mut buf).unwrap();
-                        buf
-                    })
-                    .await
-                    .unwrap();
-                    let write = region.lock().await.write_compressed_chunk(
-                        x,
-                        z,
-                        CompressionScheme::Zlib,
-                        &buf,
-                    );
-
+                    let mut region = region.lock().await;
+                    let write = tokio::task::block_in_place(move || {
+                        region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &buf)
+                    });
                     if let Err(Error::InvalidOffset(x, z)) = write {
                         println!("can't write chunk at x: {x}, z: {z}");
                     }
@@ -185,7 +182,7 @@ async fn replace_all_old() {
         let mut i = 0;
         let start = Instant::now();
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
-        let max_workers = 256;
+        let max_workers = 1024;
         for _ in 0..(len as f32 / max_workers as f32).floor() as u32 {
             let mut handles = JoinSet::new();
             while let Ok(Some(file)) = read_dir.next_entry().await {
