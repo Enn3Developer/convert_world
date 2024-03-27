@@ -29,7 +29,7 @@ async fn replace_all_old_file(
     }
 
     if are_chunks {
-        let converted_data = vec![];
+        let converted_data = Vec::with_capacity(16384);
         let region = Arc::new(Mutex::new(
             tokio::task::spawn_blocking(move || Region::new(Cursor::new(converted_data)))
                 .await
@@ -37,32 +37,15 @@ async fn replace_all_old_file(
                 .unwrap(),
         ));
 
-        let mut handles = JoinSet::new();
         for chunk in mca.iter() {
             if let Ok(chunk) = chunk {
                 let region = region.clone();
 
                 let chunk_data = chunk.data;
-                let mut chunk = tokio::task::spawn_blocking(move || {
+                let mut chunk = tokio::task::block_in_place(move || {
                     fastnbt::from_bytes::<chunk147::Chunk>(&chunk_data)
                 })
-                .await
-                .unwrap()
                 .unwrap();
-                {
-                    let tile_entities =
-                        tokio_stream::iter(chunk.level().tile_entities().clone().into_iter())
-                            .filter(|tile_entity| {
-                                tile_entity.id() == "Chest"
-                                    || tile_entity.id() == "Sign"
-                                    || tile_entity.id() == "Skull"
-                                    || tile_entity.id() == "MobSpawner"
-                            })
-                            .map(|tile_entity| tile_entity.clone())
-                            .collect::<Vec<_>>()
-                            .await;
-                    chunk.mut_level().set_tile_entities(tile_entities);
-                }
 
                 let mut stream =
                     tokio_stream::iter(conversion_map.iter().zip(chunk.mut_level().mut_sections()));
@@ -84,19 +67,16 @@ async fn replace_all_old_file(
                 })
                 .await
                 .unwrap();
-                handles.spawn(async move {
-                    let mut region = region.lock().await;
-                    let write = tokio::task::block_in_place(move || {
-                        region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &buf)
-                    });
-                    if let Err(Error::InvalidOffset(x, z)) = write {
-                        println!("can't write chunk at x: {x}, z: {z}");
-                    }
+
+                let mut region = region.lock().await;
+                let write = tokio::task::block_in_place(move || {
+                    region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &buf)
                 });
+                if let Err(Error::InvalidOffset(x, z)) = write {
+                    println!("can't write chunk at x: {x}, z: {z}");
+                }
             }
         }
-
-        while let Some(_handle) = handles.join_next().await {}
 
         let region = Arc::into_inner(region).unwrap().into_inner();
         tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
