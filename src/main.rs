@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
-use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio_stream::StreamExt;
 
@@ -31,17 +30,14 @@ async fn replace_all_old_file(
     if are_chunks {
         // allocates 8MB
         let converted_data = Vec::with_capacity(2usize.pow(26));
-        let region = Arc::new(Mutex::new(
+        let mut region =
             tokio::task::spawn_blocking(move || Region::new(Cursor::new(converted_data)))
                 .await
                 .unwrap()
-                .unwrap(),
-        ));
+                .unwrap();
 
         for chunk in mca.iter() {
             if let Ok(chunk) = chunk {
-                let region = region.clone();
-
                 let chunk_data = chunk.data;
                 let mut chunk = tokio::task::block_in_place(move || {
                     fastnbt::from_bytes::<chunk147::Chunk>(&chunk_data)
@@ -55,11 +51,11 @@ async fn replace_all_old_file(
                     section.replace_all(old_block, new_block).await;
                 }
 
-                let mut buf = vec![];
                 let x = (chunk.level().x_pos() as usize) % 32;
                 let z = (chunk.level().z_pos() as usize) % 32;
                 let uncompressed_chunk =
                     fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes");
+                let mut buf = Vec::with_capacity(uncompressed_chunk.capacity());
                 let mut enc =
                     ZlibEncoder::new(Cursor::new(uncompressed_chunk), Compression::fast());
                 let buf = tokio::task::spawn_blocking(move || {
@@ -69,8 +65,7 @@ async fn replace_all_old_file(
                 .await
                 .unwrap();
 
-                let mut region = region.lock().await;
-                let write = tokio::task::block_in_place(move || {
+                let write = tokio::task::block_in_place(|| {
                     region.write_compressed_chunk(x, z, CompressionScheme::Zlib, &buf)
                 });
                 if let Err(Error::InvalidOffset(x, z)) = write {
@@ -79,7 +74,6 @@ async fn replace_all_old_file(
             }
         }
 
-        let region = Arc::into_inner(region).unwrap().into_inner();
         tokio::fs::write(converted_path, region.into_inner().unwrap().into_inner())
             .await
             .unwrap();
