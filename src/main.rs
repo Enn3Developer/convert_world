@@ -185,7 +185,8 @@ async fn replace_all_old() {
         let mut i = 0;
         let start = Instant::now();
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
-        for _ in 0..(len as f32 / 100.0).floor() as u32 {
+        let max_workers = 256;
+        for _ in 0..(len as f32 / max_workers as f32).floor() as u32 {
             let mut handles = JoinSet::new();
             while let Ok(Some(file)) = read_dir.next_entry().await {
                 let name = file.file_name().clone();
@@ -207,7 +208,7 @@ async fn replace_all_old() {
                         replace_all_old_file(path, converted_path, conversion_map).await;
                     });
                 }
-                if started % 100 == 0 {
+                if started % max_workers == 0 {
                     break;
                 }
             }
