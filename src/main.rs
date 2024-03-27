@@ -216,12 +216,13 @@ async fn replace_all_old() {
 
             print!("\x1B[2J\x1B[1;1H");
             println!(
-                "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s",
+                "{:.2}% done; {:.2} mean rps; {}/{}; ETA: {:.1}s; elapsed: {:.1}s",
                 (i as f32) * 100.0 / (len as f32),
                 mean_rps,
                 i,
                 len,
-                eta
+                eta,
+                elapsed
             );
             println!("Made by Enn3DevPlayer");
             println!("Sponsor: N Inc.");
