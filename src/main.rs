@@ -6,7 +6,7 @@ use std::cmp;
 use std::io::{Cursor, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
@@ -184,19 +184,21 @@ async fn replace_all_old() {
         }
 
         let start = Instant::now();
-        for _ in 0..(len as f32 / 10000.0).floor() as u32 {
+        for _ in 0..(len as f32 / 5000.0).floor() as u32 {
             let mut handles = JoinSet::new();
+            let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
             while let Ok(Some(file)) = read_dir.next_entry().await {
-                started += 1;
-                println!("Starting worker n.{started}");
                 let name = file.file_name().clone();
                 let name = name.to_string_lossy().to_string();
                 let dir = dir.clone();
                 let out_dir = out_dir.clone();
                 let conversion_map = conversion_map.clone();
                 if name.ends_with(".mca") {
-                    handles.spawn(async {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    started += 1;
+                    println!("Starting worker n.{started}");
+                    let mut rx = broadcast.subscribe();
+                    handles.spawn(async move {
+                        let _ = rx.recv().await.unwrap();
                         let mut path = PathBuf::new();
                         path.push(dir);
                         path.push(&name);
@@ -206,10 +208,12 @@ async fn replace_all_old() {
                         replace_all_old_file(path, converted_path, conversion_map).await;
                     });
                 }
-                if started % 10000 == 0 {
+                if started % 5000 == 0 {
                     break;
                 }
             }
+
+            broadcast.send(true).unwrap();
 
             let mut i = 0;
             while let Some(_handle) = handles.join_next().await {
