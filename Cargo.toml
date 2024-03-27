@@ -12,7 +12,6 @@ serde = { version = "1.0.195", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["rt", "rt-multi-thread", "macros", "fs"] }
 tokio-stream = "0.1.15"
 tikv-jemallocator = "0.5.4"
-tokio-tasker = "1.2.0"
 flate2 = "1.0.28"
 
 [profile.release]
