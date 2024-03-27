@@ -40,7 +40,6 @@ async fn replace_all_old_file(
         let mut handles = JoinSet::new();
         for chunk in mca.iter() {
             if let Ok(chunk) = chunk {
-                let conversion_map = conversion_map.clone();
                 let region = region.clone();
 
                 let chunk_data = chunk.data;
@@ -50,18 +49,20 @@ async fn replace_all_old_file(
                 .await
                 .unwrap()
                 .unwrap();
-                let tile_entities =
-                    tokio_stream::iter(chunk.level().tile_entities().clone().into_iter())
-                        .filter(|tile_entity| {
-                            tile_entity.id() == "Chest"
-                                || tile_entity.id() == "Sign"
-                                || tile_entity.id() == "Skull"
-                                || tile_entity.id() == "MobSpawner"
-                        })
-                        .map(|tile_entity| tile_entity.clone())
-                        .collect::<Vec<_>>()
-                        .await;
-                chunk.mut_level().set_tile_entities(tile_entities);
+                {
+                    let tile_entities =
+                        tokio_stream::iter(chunk.level().tile_entities().clone().into_iter())
+                            .filter(|tile_entity| {
+                                tile_entity.id() == "Chest"
+                                    || tile_entity.id() == "Sign"
+                                    || tile_entity.id() == "Skull"
+                                    || tile_entity.id() == "MobSpawner"
+                            })
+                            .map(|tile_entity| tile_entity.clone())
+                            .collect::<Vec<_>>()
+                            .await;
+                    chunk.mut_level().set_tile_entities(tile_entities);
+                }
 
                 let mut stream =
                     tokio_stream::iter(conversion_map.iter().zip(chunk.mut_level().mut_sections()));
@@ -182,7 +183,7 @@ async fn replace_all_old() {
         let mut i = 0;
         let start = Instant::now();
         let (broadcast, _rx) = tokio::sync::broadcast::channel(1);
-        let max_workers = 1024;
+        let max_workers = 2048;
         for _ in 0..(len as f32 / max_workers as f32).floor() as u32 {
             let mut handles = JoinSet::new();
             while let Ok(Some(file)) = read_dir.next_entry().await {
@@ -204,9 +205,9 @@ async fn replace_all_old() {
                         converted_path.push(name);
                         replace_all_old_file(path, converted_path, conversion_map).await;
                     });
-                }
-                if started % max_workers == 0 {
-                    break;
+                    if started % max_workers == 0 {
+                        break;
+                    }
                 }
             }
 

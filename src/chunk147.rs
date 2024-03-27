@@ -1,7 +1,10 @@
+use async_stream::stream;
 use fastnbt::{ByteArray, IntArray, Value};
+use futures_util::pin_mut;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tokio_stream::StreamExt;
 
 #[derive(Eq, Hash, PartialEq, Clone)]
 pub struct Block {
@@ -299,28 +302,36 @@ impl Section {
     }
 
     pub async fn replace_all(&mut self, old: &Block, new: &Block) {
-        let mut conversion = Vec::with_capacity(128);
+        let blocks = self.blocks.clone();
+        let blocks = blocks.iter().enumerate();
+        let data = self.data.clone();
+        let data_ref = data.as_ref();
+        let add = self.add.clone();
+        let add_ref = add.as_ref();
+        let test = stream! {
+            for (idx, block) in blocks {
+                if *block == old.to_i8() {
+                    let data = Self::get_data(idx, data_ref);
+                    let d = Self::get_data(idx, add_ref);
 
-        for (idx, block) in self.blocks.iter().enumerate() {
-            if *block == old.to_i8() {
-                let data = Self::get_data(idx, self.data.as_ref());
-                let d = Self::get_data(idx, self.add.as_ref());
-
-                if old.data.is_none() || old.data.unwrap() == data {
-                    if old.id < 256 && d == 0 {
-                        conversion.push((idx, new));
-                    } else {
-                        let b = Block::from_i8(*block);
-                        let id = b.id + ((d as i32) << 8);
-                        if id == old.id {
-                            conversion.push((idx, new));
+                    if old.data.is_none() || old.data.unwrap() == data {
+                        if old.id < 256 && d == 0 {
+                            yield (idx, new);
+                        } else {
+                            let b = Block::from_i8(*block);
+                            let id = b.id + ((d as i32) << 8);
+                            if id == old.id {
+                                yield (idx, new);
+                            }
                         }
                     }
                 }
             }
-        }
+        };
 
-        for (idx, block) in conversion {
+        pin_mut!(test);
+
+        while let Some((idx, block)) = test.next().await {
             self.replace_block(idx, block).await;
         }
     }
