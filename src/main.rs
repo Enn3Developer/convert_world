@@ -26,8 +26,8 @@ async fn replace_all_old_file(
         return;
     }
 
-    // allocates 16MB
-    let converted_data = Vec::with_capacity(2usize.pow(27));
+    // allocates 32MB
+    let converted_data = Vec::with_capacity(2usize.pow(28));
     let mut region = Region::new(Cursor::new(converted_data)).unwrap();
     let mut handles = JoinSet::new();
 
