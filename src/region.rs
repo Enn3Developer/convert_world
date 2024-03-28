@@ -2,10 +2,7 @@ use async_compression::Level;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use fastanvil::Error;
 use num_enum_derive::TryFromPrimitive;
-use std::future::Future;
 use std::io::{Cursor, SeekFrom};
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_stream::Stream;
 
@@ -17,6 +14,12 @@ pub(crate) const CHUNK_HEADER_SIZE: usize = 5;
 pub struct Region<S> {
     stream: S,
     offsets: Vec<u64>,
+}
+
+impl<S> Region<S> {
+    pub fn inner(self) -> S {
+        self.stream
+    }
 }
 
 impl<S> Region<S>
@@ -179,8 +182,20 @@ where
         buf
     }
 
-    pub fn iter(&mut self) -> RegionIter<'_, S> {
-        RegionIter::new(self)
+    pub fn stream(&mut self) -> impl Stream<Item = fastanvil::Result<ChunkData>> + '_ {
+        async_stream::stream! {
+            for x in 0..32 {
+                for z in 0..32 {
+                    let data = self.async_read_chunk(x,z).await?;
+                    match data {
+                        None => {},
+                        Some(data) => {
+                            yield Ok(ChunkData { x, z, data });
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -320,68 +335,6 @@ where
     }
 }
 
-pub struct RegionIter<'a, S> {
-    inner: &'a mut Region<S>,
-    index: (usize, usize),
-}
-
-impl<'a, S> RegionIter<'a, S>
-where
-    S: AsyncReadExt + AsyncSeekExt + Unpin,
-{
-    fn new(inner: &'a mut Region<S>) -> Self {
-        Self {
-            inner,
-            index: (0, 0),
-        }
-    }
-
-    fn next_xz(&mut self) -> Option<(usize, usize)> {
-        let mut index = self.index;
-        index.1 += 1;
-        if index.1 >= 32 {
-            index.1 = 0;
-            index.0 += 1;
-            if index.0 >= 32 {
-                return None;
-            }
-        }
-
-        Some(index)
-    }
-}
-
-impl<'a, S> Stream for RegionIter<'a, S>
-where
-    S: AsyncReadExt + AsyncSeekExt + Unpin,
-{
-    type Item = fastanvil::Result<ChunkData>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let x = self.index.0;
-        let z = self.index.1;
-        let poll: Poll<fastanvil::Result<Option<Vec<u8>>>>;
-        {
-            let fut = self.inner.async_read_chunk(x, z);
-            tokio::pin!(fut);
-            poll = fut.poll(cx);
-        }
-        match poll {
-            Poll::Ready(data) => {
-                self.next_xz();
-                match data? {
-                    None => {}
-                    Some(data) => {
-                        return Poll::Ready(Some(Ok(ChunkData { x, z, data })));
-                    }
-                }
-            }
-            Poll::Pending => return Poll::Pending,
-        }
-        Poll::Ready(None)
-    }
-}
-
 pub struct ChunkData {
     pub x: usize,
     pub z: usize,
@@ -443,7 +396,7 @@ impl ChunkMeta {
             .map_err(|_| Error::UnknownCompression(scheme))?;
 
         Ok(Self {
-            compressed_len: len - 1, // this len include the compression byte.
+            compressed_len: len - 1,
             compression_scheme: scheme,
         })
     }

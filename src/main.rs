@@ -1,13 +1,15 @@
 use async_compression::Level;
 use convert_world::chunk147;
+use convert_world::chunk147::Block;
 use convert_world::region::Region;
 use fastanvil::Error;
+use futures_util::pin_mut;
 use std::cmp;
+use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Instant;
 use tikv_jemallocator::Jemalloc;
-use tokio::fs::{File, OpenOptions};
+use tokio::sync::broadcast::Receiver;
 use tokio::task::JoinSet;
 use tokio_stream::StreamExt;
 
@@ -17,60 +19,56 @@ static GLOBAL: Jemalloc = Jemalloc;
 async fn replace_all_old_file(
     path: PathBuf,
     converted_path: PathBuf,
-    conversion_map: Arc<Vec<(chunk147::Block, chunk147::Block)>>,
     compression: Level,
+    mut rx: Receiver<(Block, Block)>,
 ) {
-    let file = File::open(path).await.unwrap();
-    let mut mca = Region::from_async_stream(file).await.unwrap();
-
-    if mca.iter().next().await.is_none() {
-        return;
-    }
-
-    let mut handles = JoinSet::new();
-    let mut mca_stream = mca.iter();
-
-    while let Some(chunk) = mca_stream.next().await {
-        if let Ok(chunk) = chunk {
-            let conversion_map = conversion_map.clone();
-            handles.spawn(async move {
-                let mut chunk = fastnbt::from_bytes::<chunk147::Chunk>(&chunk.data).unwrap();
-
-                for (old, new) in conversion_map.iter() {
-                    for section in chunk.mut_level().mut_sections() {
-                        section.replace_all(old, new).await;
-                    }
-                }
-
-                chunk
-            });
-        }
-    }
-
-    let converted_file = OpenOptions::new()
-        .write(true)
-        .read(true)
-        .create(true)
-        .truncate(true)
-        .open(converted_path)
+    let mut mca = Region::from_async_stream(Cursor::new(tokio::fs::read(path).await.unwrap()))
         .await
         .unwrap();
-    let mut region = Region::async_new(converted_file).await.unwrap();
-    while let Some(Ok(chunk)) = handles.join_next().await {
-        let x = (chunk.level().x_pos() as usize) % 32;
-        let z = (chunk.level().z_pos() as usize) % 32;
-        if let Err(Error::InvalidOffset(x, z)) = region
-            .async_write_chunk_with_quality(
-                x,
-                z,
-                &fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes"),
-                compression,
-            )
-            .await
-        {
-            println!("can't write chunk at x: {x}, z: {z}");
+
+    {
+        let stream = mca.stream();
+        pin_mut!(stream);
+
+        if stream.next().await.is_none() {
+            return;
         }
     }
+
+    let stream = mca.stream();
+    pin_mut!(stream);
+    let buf = Vec::with_capacity(2usize.pow(27));
+    let mut region = Region::async_new(Cursor::new(buf)).await.unwrap();
+
+    while let Ok((old, new)) = &rx.recv().await {
+        while let Some(chunk) = stream.next().await {
+            if let Ok(chunk) = chunk {
+                let mut chunk = fastnbt::from_bytes::<chunk147::Chunk>(&chunk.data).unwrap();
+
+                for section in chunk.mut_level().mut_sections() {
+                    section.replace_all(old, new).await;
+                }
+
+                let x = (chunk.level().x_pos() as usize) % 32;
+                let z = (chunk.level().z_pos() as usize) % 32;
+                if let Err(Error::InvalidOffset(x, z)) = region
+                    .async_write_chunk_with_quality(
+                        x,
+                        z,
+                        &fastnbt::to_bytes(&chunk).expect("can't convert chunk to bytes"),
+                        compression,
+                    )
+                    .await
+                {
+                    println!("can't write chunk at x: {x}, z: {z}");
+                }
+            }
+        }
+    }
+
+    tokio::fs::write(converted_path, region.inner().into_inner())
+        .await
+        .unwrap();
 }
 
 fn read_id(n: &str) -> chunk147::Block {
@@ -85,9 +83,7 @@ fn read_id(n: &str) -> chunk147::Block {
     }
 }
 
-async fn read_conversion_file(
-    conversion_path: String,
-) -> Arc<Vec<(chunk147::Block, chunk147::Block)>> {
+async fn read_conversion_file(conversion_path: String) -> Vec<(Block, Block)> {
     let mut conversion_map = vec![];
     let conversion_content = tokio::fs::read_to_string(conversion_path).await.unwrap();
 
@@ -119,7 +115,7 @@ async fn read_conversion_file(
     .await
     .unwrap();
 
-    Arc::new(conversion_map)
+    conversion_map
 }
 
 async fn replace_all_old() {
@@ -137,13 +133,7 @@ async fn replace_all_old() {
             Level::Default
         };
         let conversion_map = read_conversion_file(conversion_path).await;
-        replace_all_old_file(
-            path.into(),
-            converted_path.into(),
-            conversion_map,
-            compression,
-        )
-        .await;
+        replace_all_old_file(path.into(), converted_path.into(), compression, todo!()).await;
     } else {
         let conversion_path = std::env::args().nth(2).unwrap();
         let dir = std::env::args().nth(3).unwrap();
@@ -160,7 +150,7 @@ async fn replace_all_old() {
             .nth(6)
             .unwrap_or(String::from("8192"))
             .parse::<u32>()
-            .unwrap();
+            .unwrap_or(8192);
         let conversion_map = read_conversion_file(conversion_path).await;
         let mut read_dir = tokio::fs::read_dir(dir.clone()).await.unwrap();
         println!("Starting all workers");
@@ -185,20 +175,17 @@ async fn replace_all_old() {
                 let name = name.to_string_lossy().to_string();
                 let dir = dir.clone();
                 let out_dir = out_dir.clone();
-                let conversion_map = conversion_map.clone();
                 if name.ends_with(".mca") {
                     started += 1;
-                    let mut rx = broadcast.subscribe();
+                    let rx = broadcast.subscribe();
                     handles.spawn(async move {
-                        let _ = rx.recv().await.unwrap();
                         let mut path = PathBuf::new();
                         path.push(dir);
                         path.push(&name);
                         let mut converted_path = PathBuf::new();
                         converted_path.push(out_dir);
                         converted_path.push(name);
-                        replace_all_old_file(path, converted_path, conversion_map, compression)
-                            .await;
+                        replace_all_old_file(path, converted_path, compression, rx).await;
                     });
                     if started % max_workers == 0 {
                         break;
@@ -208,7 +195,9 @@ async fn replace_all_old() {
             pauses += (Instant::now() - start_pause).as_secs_f32();
 
             println!("Signaling all workers");
-            broadcast.send(true).unwrap();
+            for conversion in &conversion_map {
+                broadcast.send(conversion.clone()).unwrap();
+            }
             while let Some(_handle) = handles.join_next().await {
                 i += 1;
                 let now = Instant::now();
